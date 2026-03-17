@@ -1,0 +1,136 @@
+{
+  "projectType": "api-service",
+  "projectName": "TaskForge API",
+  "projectDescription": "A professional RESTful API for task management built with Flask, SQLAlchemy, and Azure SQL Database, featuring JWT authentication, role-based access control, and deployment on Azure App Service.",
+  "theme": "sequoia",
+  "primaryColor": "#2c0444",
+  "lightColor": "#f13155",
+  "darkColor": "#d5cbdf",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": ["introduction", "quickstart", "authentication"]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/configuration",
+              "guides/docker",
+              "guides/rate-limiting",
+              "guides/data-export",
+              "guides/testing"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/azure",
+              "deployment/ci-cd",
+              "deployment/database"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": ["api-reference/overview", "api-reference/errors"]
+          },
+          {
+            "group": "Authentication",
+            "pages": [
+              "api-reference/auth/register",
+              "api-reference/auth/login",
+              "api-reference/auth/refresh",
+              "api-reference/auth/logout",
+              "api-reference/auth/me",
+              "api-reference/auth/change-password"
+            ]
+          },
+          {
+            "group": "Tasks",
+            "pages": [
+              "api-reference/tasks/list",
+              "api-reference/tasks/get",
+              "api-reference/tasks/create",
+              "api-reference/tasks/update",
+              "api-reference/tasks/delete",
+              "api-reference/tasks/complete",
+              "api-reference/tasks/statistics",
+              "api-reference/tasks/export"
+            ]
+          },
+          {
+            "group": "Tags",
+            "pages": [
+              "api-reference/tags/list",
+              "api-reference/tags/get",
+              "api-reference/tags/create",
+              "api-reference/tags/update",
+              "api-reference/tags/delete"
+            ]
+          },
+          {
+            "group": "Users",
+            "pages": [
+              "api-reference/users/list",
+              "api-reference/users/get",
+              "api-reference/users/update",
+              "api-reference/users/delete",
+              "api-reference/users/activate",
+              "api-reference/users/deactivate"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "JWT Authentication with access and refresh tokens",
+    "Role-Based Access Control (RBAC) with Admin and User roles",
+    "Full CRUD task management with status and priority tracking",
+    "Tag system for task categorization with custom colors",
+    "Advanced filtering by status, priority, tags, and date ranges",
+    "Server-side pagination and customizable sorting",
+    "Data export to CSV and JSON formats",
+    "Rate limiting with Flask-Limiter",
+    "Interactive Swagger/OpenAPI documentation",
+    "268 tests with >73% code coverage",
+    "Azure App Service deployment with CI/CD via GitHub Actions",
+    "Docker support with Docker Compose"
+  ],
+  "publicApiSurface": [
+    "POST /api/auth/register",
+    "POST /api/auth/login",
+    "POST /api/auth/refresh",
+    "POST /api/auth/logout",
+    "GET /api/auth/me",
+    "POST /api/auth/change-password",
+    "GET /api/tasks",
+    "GET /api/tasks/{task_id}",
+    "POST /api/tasks",
+    "PUT /api/tasks/{task_id}",
+    "DELETE /api/tasks/{task_id}",
+    "POST /api/tasks/{task_id}/complete",
+    "GET /api/tasks/statistics",
+    "GET /api/tasks/export",
+    "GET /api/tags",
+    "GET /api/tags/{tag_id}",
+    "POST /api/tags",
+    "PUT /api/tags/{tag_id}",
+    "DELETE /api/tags/{tag_id}",
+    "GET /api/users",
+    "GET /api/users/{user_id}",
+    "PUT /api/users/{user_id}",
+    "DELETE /api/users/{user_id}",
+    "POST /api/users/{user_id}/activate",
+    "POST /api/users/{user_id}/deactivate",
+    "GET /api/health"
+  ]
+}
