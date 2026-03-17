@@ -1,0 +1,354 @@
+---
+title: Database setup
+description: Configure Azure SQL Database for production or SQLite for local development.
+---
+
+## Database options
+
+<CardGroup cols={2}>
+  <Card title="Azure SQL Database" icon="database">
+    Used in production. Requires the five `AZURE_SQL_*` environment variables. The app connects via `pyodbc` with ODBC Driver 17 for SQL Server.
+  </Card>
+  <Card title="SQLite" icon="hard-drive">
+    Used in local development and CI testing. Requires no extra configuration. The app falls back to SQLite automatically when the `AZURE_SQL_*` variables are not set.
+  </Card>
+</CardGroup>
+
+The selection logic is in `app/config.py`:
+
+```python
+driver = 'ODBC Driver 17 for SQL Server'
+
+if all([AZURE_SQL_SERVER, AZURE_SQL_DATABASE, AZURE_SQL_USER, AZURE_SQL_PASSWORD]):
+    SQLALCHEMY_DATABASE_URI = (
+        f"mssql+pyodbc://{AZURE_SQL_USER}:{AZURE_SQL_PASSWORD}@"
+        f"{AZURE_SQL_SERVER}:{AZURE_SQL_PORT}/{AZURE_SQL_DATABASE}"
+        f"?driver={driver.replace(' ', '+')}"
+    )
+else:
+    SQLALCHEMY_DATABASE_URI = 'sqlite:///taskforge.db'
+```
+
+<Warning>
+  SQLite is not suitable for production on Azure App Service. The container filesystem is ephemeral — the database file is lost when the container restarts.
+</Warning>
+
+## Azure SQL Database setup
+
+<Steps>
+  <Step title="Create an Azure SQL Server">
+    ```bash
+    az sql server create \
+      --name <server-name> \
+      --resource-group <resource-group> \
+      --location <location> \
+      --admin-user sqladmin \
+      --admin-password <secure-password>
+    ```
+  </Step>
+
+  <Step title="Create the database">
+    ```bash
+    az sql db create \
+      --resource-group <resource-group> \
+      --server <server-name> \
+      --name taskforge_db \
+      --service-objective Basic
+    ```
+
+    Use `Basic` for development or a higher service objective (e.g. `S1`) for production workloads.
+  </Step>
+
+  <Step title="Configure the firewall">
+    Allow Azure services (including Azure App Service) to reach the server:
+
+    ```bash
+    az sql server firewall-rule create \
+      --resource-group <resource-group> \
+      --server <server-name> \
+      --name AllowAzureServices \
+      --start-ip-address 0.0.0.0 \
+      --end-ip-address 0.0.0.0
+    ```
+
+    To also allow your local machine during development:
+
+    ```bash
+    az sql server firewall-rule create \
+      --resource-group <resource-group> \
+      --server <server-name> \
+      --name AllowMyIP \
+      --start-ip-address <your-ip> \
+      --end-ip-address <your-ip>
+    ```
+  </Step>
+
+  <Step title="Run init_db_azure.sql">
+    Execute the schema script using Azure Data Studio, SQL Server Management Studio, or `sqlcmd`:
+
+    ```bash
+    sqlcmd -S <server-name>.database.windows.net \
+           -d taskforge_db \
+           -U sqladmin \
+           -P <password> \
+           -i scripts/init_db_azure.sql
+    ```
+
+    The script creates all tables, indexes, default roles, the default admin user, and sample tags.
+  </Step>
+
+  <Step title="Set environment variables">
+    Add the connection details to your Azure App Service configuration (or your local `.env` file):
+
+    ```bash
+    AZURE_SQL_SERVER=<server-name>.database.windows.net
+    AZURE_SQL_DATABASE=taskforge_db
+    AZURE_SQL_USER=sqladmin
+    AZURE_SQL_PASSWORD=<secure-password>
+    AZURE_SQL_PORT=1433
+    ```
+  </Step>
+</Steps>
+
+## Schema
+
+The full schema is defined in `scripts/init_db_azure.sql`. Run the script as shown above to create all objects.
+
+```sql
+-- TaskForge API - Azure SQL Database Schema
+-- Database: taskforge_db
+
+-- Roles Table
+CREATE TABLE roles (
+    id INT IDENTITY(1,1) PRIMARY KEY,
+    name NVARCHAR(50) NOT NULL UNIQUE,
+    description NVARCHAR(255),
+    created_at DATETIME2 DEFAULT GETUTCDATE()
+);
+
+-- Users Table
+CREATE TABLE users (
+    id INT IDENTITY(1,1) PRIMARY KEY,
+    username NVARCHAR(80) NOT NULL UNIQUE,
+    email NVARCHAR(120) NOT NULL UNIQUE,
+    password_hash NVARCHAR(255) NOT NULL,
+    first_name NVARCHAR(50),
+    last_name NVARCHAR(50),
+    is_active BIT DEFAULT 1,
+    role_id INT NOT NULL,
+    created_at DATETIME2 DEFAULT GETUTCDATE(),
+    updated_at DATETIME2 DEFAULT GETUTCDATE(),
+    CONSTRAINT FK_User_Role FOREIGN KEY (role_id) REFERENCES roles(id)
+);
+
+-- Refresh Tokens Table
+CREATE TABLE refresh_tokens (
+    id INT IDENTITY(1,1) PRIMARY KEY,
+    token NVARCHAR(500) NOT NULL UNIQUE,
+    user_id INT NOT NULL,
+    is_revoked BIT DEFAULT 0,
+    expires_at DATETIME2 NOT NULL,
+    created_at DATETIME2 DEFAULT GETUTCDATE(),
+    CONSTRAINT FK_RefreshToken_User FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- Tasks Table
+CREATE TABLE tasks (
+    id INT IDENTITY(1,1) PRIMARY KEY,
+    title NVARCHAR(200) NOT NULL,
+    description NVARCHAR(MAX),
+    status NVARCHAR(50) DEFAULT 'pending' NOT NULL,
+    priority NVARCHAR(50) DEFAULT 'medium' NOT NULL,
+    due_date DATETIME2,
+    completed_at DATETIME2,
+    user_id INT NOT NULL,
+    created_at DATETIME2 DEFAULT GETUTCDATE(),
+    updated_at DATETIME2 DEFAULT GETUTCDATE(),
+    CONSTRAINT FK_Task_User FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    CONSTRAINT CHK_Task_Status CHECK (status IN ('pending', 'in_progress', 'completed', 'cancelled')),
+    CONSTRAINT CHK_Task_Priority CHECK (priority IN ('low', 'medium', 'high', 'urgent'))
+);
+
+-- Tags Table
+CREATE TABLE tags (
+    id INT IDENTITY(1,1) PRIMARY KEY,
+    name NVARCHAR(50) NOT NULL UNIQUE,
+    color NVARCHAR(7) DEFAULT '#808080',
+    description NVARCHAR(255),
+    created_at DATETIME2 DEFAULT GETUTCDATE(),
+    updated_at DATETIME2 DEFAULT GETUTCDATE()
+);
+
+-- Task-Tags Junction Table (Many-to-Many)
+CREATE TABLE task_tags (
+    task_id INT NOT NULL,
+    tag_id INT NOT NULL,
+    created_at DATETIME2 DEFAULT GETUTCDATE(),
+    PRIMARY KEY (task_id, tag_id),
+    CONSTRAINT FK_TaskTag_Task FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+    CONSTRAINT FK_TaskTag_Tag FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
+);
+```
+
+The script also creates performance indexes and inserts seed data:
+
+```sql
+-- Indexes
+CREATE INDEX IDX_Users_Username ON users(username);
+CREATE INDEX IDX_Users_Email ON users(email);
+CREATE INDEX IDX_Users_RoleId ON users(role_id);
+CREATE INDEX IDX_RefreshTokens_Token ON refresh_tokens(token);
+CREATE INDEX IDX_RefreshTokens_UserId ON refresh_tokens(user_id);
+CREATE INDEX IDX_Tasks_UserId ON tasks(user_id);
+CREATE INDEX IDX_Tasks_Status ON tasks(status);
+CREATE INDEX IDX_Tasks_Priority ON tasks(priority);
+CREATE INDEX IDX_Tasks_DueDate ON tasks(due_date);
+CREATE INDEX IDX_Tags_Name ON tags(name);
+
+-- Default roles
+INSERT INTO roles (name, description) VALUES
+('admin', 'Administrator role with full access'),
+('user', 'Standard user role with limited access');
+
+-- Default admin user (password: Admin123! — change immediately in production)
+INSERT INTO users (username, email, password_hash, first_name, last_name, role_id, is_active)
+VALUES (
+    'admin',
+    'admin@taskforge.com',
+    '$2b$12$FZcQR4FNLppbydmvfPDHdOx3zsakQ7xmphqt0VjcyO1dXyeVU3RAu',
+    'System',
+    'Administrator',
+    (SELECT id FROM roles WHERE name = 'admin'),
+    1
+);
+
+-- Sample tags
+INSERT INTO tags (name, color, description) VALUES
+('Work', '#FF5733', 'Work-related tasks'),
+('Personal', '#33FF57', 'Personal tasks'),
+('Urgent', '#FF3333', 'Urgent tasks'),
+('Important', '#3357FF', 'Important tasks'),
+('Later', '#808080', 'Tasks for later');
+```
+
+<Warning>
+  The default admin password is `Admin123!`. Change it immediately after setup using the `/api/auth/change-password` endpoint or by running `scripts/reset_admin_password.py` over SSH.
+</Warning>
+
+## Schema overview
+
+### Tables
+
+| Table | Description |
+|---|---|
+| `roles` | Role definitions — `admin` and `user` |
+| `users` | User accounts with bcrypt-hashed passwords and a foreign key to `roles` |
+| `refresh_tokens` | JWT refresh tokens with revocation support; cascade-deletes when the user is deleted |
+| `tasks` | Tasks owned by users with status (`pending`, `in_progress`, `completed`, `cancelled`) and priority (`low`, `medium`, `high`, `urgent`) constraints |
+| `tags` | Global tags with a hex colour code, available to any task |
+| `task_tags` | Many-to-many join table between `tasks` and `tags` |
+
+### ER diagram
+
+```
+┌─────────────┐       ┌──────────────┐       ┌─────────────┐
+│    roles    │       │    users     │       │    tasks    │
+├─────────────┤       ├──────────────┤       ├─────────────┤
+│ id (PK)     │───┐   │ id (PK)      │───┐   │ id (PK)     │
+│ name        │   └──<│ role_id (FK) │   └──<│ user_id (FK)│
+│ description │       │ username     │       │ title       │
+└─────────────┘       │ email        │       │ description │
+                      │ password     │       │ status      │
+                      └──────────────┘       │ priority    │
+                                             │ due_date    │
+                      ┌──────────────┐       └─────────────┘
+                      │refresh_tokens│              │
+                      ├──────────────┤              │
+                      │ id (PK)      │              │
+                      │ user_id (FK) │         ┌────┴────┐
+                      │ token        │         │task_tags│
+                      │ expires_at   │         ├─────────┤
+                      └──────────────┘         │task_id  │
+                                               │tag_id   │
+                      ┌─────────────┐          └────┬────┘
+                      │    tags     │               │
+                      ├─────────────┤               │
+                      │ id (PK)     │───────────────┘
+                      │ name        │
+                      │ color       │
+                      └─────────────┘
+```
+
+## SQLite for local development
+
+When none of the `AZURE_SQL_*` variables are set, the app automatically uses SQLite. To initialise the schema locally:
+
+```bash
+flask init-db
+```
+
+This creates `taskforge.db` in the project root. The SQLite schema is managed by SQLAlchemy's `db.create_all()` and mirrors the model definitions in `app/models/`.
+
+<Tip>
+  For local development you do not need to run `init_db_azure.sql`. Use `flask init-db` instead — it works without any Azure credentials.
+</Tip>
+
+## Connection string configuration
+
+The connection string is assembled in `app/config.py` using pyodbc:
+
+```python
+driver = 'ODBC Driver 17 for SQL Server'
+
+SQLALCHEMY_DATABASE_URI = (
+    f"mssql+pyodbc://{AZURE_SQL_USER}:{AZURE_SQL_PASSWORD}@"
+    f"{AZURE_SQL_SERVER}:{AZURE_SQL_PORT}/{AZURE_SQL_DATABASE}"
+    f"?driver={driver.replace(' ', '+')}"
+)
+```
+
+All five `AZURE_SQL_*` variables must be present for the Azure SQL path to activate. If any one is missing, the app silently falls back to SQLite.
+
+### Required environment variables
+
+| Variable | Example |
+|---|---|
+| `AZURE_SQL_SERVER` | `taskforge-server.database.windows.net` |
+| `AZURE_SQL_DATABASE` | `taskforge_db` |
+| `AZURE_SQL_USER` | `sqladmin` |
+| `AZURE_SQL_PASSWORD` | Your secure password |
+| `AZURE_SQL_PORT` | `1433` |
+
+## Using pyodbc
+
+The app depends on `pyodbc` 5.3.0 and the **ODBC Driver 17 for SQL Server**. On Azure App Service (Linux), Microsoft's ODBC driver is available by default in the Python runtime image. For local development, install it separately:
+
+<Tabs>
+  <Tab title="Ubuntu / Debian">
+    ```bash
+    curl https://packages.microsoft.com/keys/microsoft.asc | sudo apt-key add -
+    curl https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/prod.list \
+      | sudo tee /etc/apt/sources.list.d/mssql-release.list
+    sudo apt-get update
+    sudo ACCEPT_EULA=Y apt-get install -y msodbcsql17
+    ```
+  </Tab>
+  <Tab title="macOS">
+    ```bash
+    brew tap microsoft/mssql-release https://github.com/Microsoft/homebrew-mssql-release
+    brew update
+    HOMEBREW_ACCEPT_EULA=Y brew install msodbcsql17
+    ```
+  </Tab>
+  <Tab title="Windows">
+    Download and run the installer from the [Microsoft ODBC Driver for SQL Server](https://learn.microsoft.com/en-us/sql/connect/odbc/download-odbc-driver-for-sql-server) page.
+  </Tab>
+</Tabs>
+
+With the driver installed, install the Python package:
+
+```bash
+pip install pyodbc==5.3.0
+```
+
+pyodbc is already included in `requirements.txt`; this step is only needed if you are setting up the driver outside a virtual environment.

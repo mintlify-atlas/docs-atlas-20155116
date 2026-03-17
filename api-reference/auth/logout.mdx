@@ -1,0 +1,72 @@
+---
+title: Logout
+description: Log out the current user and optionally revoke the refresh token.
+---
+
+`POST /api/auth/logout`
+
+**Authentication required.** Pass your access token in the `Authorization: Bearer` header.
+
+## Request body
+
+<ParamField body="refresh_token" type="string">
+  The refresh token to revoke. When provided, the token's `is_revoked` flag is set to `true` in the database, preventing it from being used to obtain new access tokens.
+</ParamField>
+
+<Note>
+The `refresh_token` field is optional but strongly recommended. If you omit it, the server-side token record is not invalidated and the refresh token remains usable until it expires naturally.
+</Note>
+
+## Token revocation
+
+When you provide a `refresh_token`, the API looks it up in the `refresh_tokens` table and sets `is_revoked = true`. Any subsequent call to `POST /auth/refresh` with that token returns a `401` error.
+
+Changing your password via `POST /auth/change-password` automatically revokes **all** active refresh tokens for your account, regardless of whether you call logout.
+
+## Response
+
+### 200 OK
+
+Logout succeeded.
+
+<ResponseField name="success" type="boolean" required>
+  Always `true` on success.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Confirmation message.
+</ResponseField>
+
+<CodeGroup>
+
+```bash curl
+curl --request POST \
+  --url http://localhost:5000/api/auth/logout \
+  --header 'Authorization: Bearer <your_access_token>' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+  }'
+```
+
+```python python
+import requests
+
+response = requests.post(
+    "http://localhost:5000/api/auth/logout",
+    headers={"Authorization": "Bearer <your_access_token>"},
+    json={"refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."},
+)
+print(response.json())
+```
+
+</CodeGroup>
+
+**200 response:**
+
+```json
+{
+  "success": true,
+  "message": "Sesion cerrada con exito"
+}
+```

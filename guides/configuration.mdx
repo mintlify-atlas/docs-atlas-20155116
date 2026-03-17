@@ -1,0 +1,230 @@
+---
+title: Configuration
+description: Environment variables and configuration settings for the TaskForge API.
+---
+
+TaskForge API uses environment variables for all runtime configuration. Copy `.env.example` to `.env` in the project root and fill in the values before starting the server.
+
+```bash
+cp .env.example .env
+```
+
+## How the app selects a configuration
+
+The app factory reads `FLASK_ENV` at startup and selects one of three configuration classes defined in `app/config.py`:
+
+```python
+def get_config(env=None):
+    """Get configuration based on environment"""
+    if env is None:
+        env = os.getenv('FLASK_ENV', 'development')
+    return config.get(env, config['default'])
+```
+
+| `FLASK_ENV` value | Config class | Notable behaviour |
+|---|---|---|
+| `development` (default) | `DevelopmentConfig` | `DEBUG=True`, SQL echo enabled |
+| `testing` | `TestingConfig` | In-memory SQLite, rate limiting disabled |
+| `production` | `ProductionConfig` | `DEBUG=False`, rate limiting forced on |
+
+If Azure SQL environment variables are not set, the app falls back to a local SQLite database (`taskforge.db`). This fallback is not recommended for production.
+
+## Application settings
+
+<ParamField path="FLASK_APP" type="string" default="run.py">
+  Entry-point module passed to the Flask CLI. Rarely needs to change.
+
+  ```bash
+  FLASK_APP=run.py
+  ```
+</ParamField>
+
+<ParamField path="FLASK_ENV" type="string" default="development">
+  Selects the active configuration class. Accepted values: `development`, `testing`, `production`.
+
+  ```bash
+  FLASK_ENV=development
+  ```
+</ParamField>
+
+<ParamField path="SECRET_KEY" type="string" required>
+  Flask session signing key. Use a long random string in production.
+
+  ```bash
+  SECRET_KEY=tu-clave-secreta-aqui-cambiar-en-produccion
+  ```
+
+  <Warning>The default fallback value `dev-secret-key-change-in-production` must never be used in production.</Warning>
+</ParamField>
+
+<ParamField path="JWT_SECRET_KEY" type="string" required>
+  Signs JWT access and refresh tokens. Must be different from `SECRET_KEY`.
+
+  ```bash
+  JWT_SECRET_KEY=tu-clave-jwt-secreta-aqui-cambiar-en-produccion
+  ```
+</ParamField>
+
+## Azure SQL database settings
+
+When all four required Azure SQL variables are present, the app builds a pyodbc connection string automatically:
+
+```
+mssql+pyodbc://<user>:<password>@<server>:<port>/<database>?driver=ODBC+Driver+17+for+SQL+Server
+```
+
+If any variable is missing the app falls back to `sqlite:///taskforge.db`.
+
+<ParamField path="AZURE_SQL_SERVER" type="string" required>
+  Fully-qualified Azure SQL server hostname.
+
+  ```bash
+  AZURE_SQL_SERVER=tuservidor.database.windows.net
+  ```
+</ParamField>
+
+<ParamField path="AZURE_SQL_DATABASE" type="string" default="taskforge_db">
+  Name of the database to connect to.
+
+  ```bash
+  AZURE_SQL_DATABASE=taskforge_db
+  ```
+</ParamField>
+
+<ParamField path="AZURE_SQL_USER" type="string" required>
+  SQL authentication username.
+
+  ```bash
+  AZURE_SQL_USER=tuusuario
+  ```
+</ParamField>
+
+<ParamField path="AZURE_SQL_PASSWORD" type="string" required>
+  SQL authentication password.
+
+  ```bash
+  AZURE_SQL_PASSWORD=TuPassword123
+  ```
+</ParamField>
+
+<ParamField path="AZURE_SQL_PORT" type="string" default="1433">
+  TCP port for the SQL Server connection.
+
+  ```bash
+  AZURE_SQL_PORT=1433
+  ```
+</ParamField>
+
+## JWT configuration
+
+Tokens are transmitted in the `Authorization: Bearer <token>` header. The identity claim is stored under the `sub` key.
+
+<ParamField path="JWT_ACCESS_TOKEN_EXPIRES" type="integer" default="3600">
+  Access token lifetime in seconds. Defaults to 1 hour.
+
+  ```bash
+  JWT_ACCESS_TOKEN_EXPIRES=3600
+  ```
+</ParamField>
+
+<ParamField path="JWT_REFRESH_TOKEN_EXPIRES" type="integer" default="2592000">
+  Refresh token lifetime in seconds. Defaults to 30 days.
+
+  ```bash
+  JWT_REFRESH_TOKEN_EXPIRES=2592000
+  ```
+</ParamField>
+
+## Rate limiting
+
+See the [rate limiting guide](/guides/rate-limiting) for a full explanation of per-route limits.
+
+<ParamField path="RATELIMIT_ENABLED" type="boolean" default="true">
+  Set to `false` to disable rate limiting entirely (useful in development).
+
+  ```bash
+  RATELIMIT_ENABLED=true
+  ```
+</ParamField>
+
+<ParamField path="RATELIMIT_STORAGE_URL" type="string" default="memory://">
+  Storage backend for rate limit counters. Use `redis://localhost:6379/0` in production to share limits across multiple workers.
+
+  ```bash
+  RATELIMIT_STORAGE_URL=memory://
+  ```
+</ParamField>
+
+<ParamField path="RATELIMIT_DEFAULT" type="string" default="200 per day;50 per hour">
+  Semicolon-separated list of default limits applied to every route that does not have an explicit per-route limit.
+
+  ```bash
+  RATELIMIT_DEFAULT=200 per day;50 per hour
+  ```
+</ParamField>
+
+## CORS
+
+<ParamField path="CORS_ORIGINS" type="string" default="http://localhost:3000,http://localhost:5173">
+  Comma-separated list of allowed origins. The app splits this string and passes the resulting list to Flask-CORS.
+
+  ```bash
+  CORS_ORIGINS=http://localhost:3000,http://localhost:5173
+  ```
+
+  All `/api/*` routes accept `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, and `OPTIONS` methods with `Content-Type` and `Authorization` headers.
+</ParamField>
+
+## Pagination
+
+<ParamField path="DEFAULT_PAGE_SIZE" type="integer" default="10">
+  Number of items returned per page when the caller does not specify `per_page`.
+
+  ```bash
+  DEFAULT_PAGE_SIZE=10
+  ```
+</ParamField>
+
+<ParamField path="MAX_PAGE_SIZE" type="integer" default="100">
+  Maximum value the caller may request for `per_page`. Requests above this cap are silently clamped.
+
+  ```bash
+  MAX_PAGE_SIZE=100
+  ```
+</ParamField>
+
+## Logging
+
+<ParamField path="LOG_LEVEL" type="string" default="INFO">
+  Minimum log level. Accepted values: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`.
+
+  ```bash
+  LOG_LEVEL=INFO
+  ```
+</ParamField>
+
+<ParamField path="LOG_FORMAT" type="string" default="json">
+  Log output format. The app records structured JSON logs to `logs/taskforge.log` (rotated at 10 MB, 10 backups kept).
+
+  ```bash
+  LOG_FORMAT=json
+  ```
+</ParamField>
+
+## Application metadata
+
+<ParamField path="APP_NAME" type="string" default="TaskForge API">
+  Application name surfaced in the Swagger UI and API responses.
+
+  ```bash
+  APP_NAME=TaskForge API
+  ```
+</ParamField>
+
+<ParamField path="APP_VERSION" type="string" default="1.0.0">
+  Semantic version string surfaced in the Swagger UI.
+
+  ```bash
+  APP_VERSION=1.0.0
+  ```
+</ParamField>

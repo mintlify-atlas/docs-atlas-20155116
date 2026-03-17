@@ -1,0 +1,159 @@
+---
+title: Docker
+description: Build and run TaskForge API with Docker and Docker Compose.
+---
+
+## Prerequisites
+
+- [Docker](https://docs.docker.com/get-docker/) 20.10 or later
+- [Docker Compose](https://docs.docker.com/compose/install/) v2 or later
+- A `.env` file in the project root (copy from `.env.example`)
+
+## Quick start
+
+<Steps>
+  <Step title="Copy the environment file">
+    ```bash
+    cp .env.example .env
+    ```
+
+    Edit `.env` and set at minimum `SECRET_KEY`, `JWT_SECRET_KEY`, and your Azure SQL credentials. The app falls back to an in-process SQLite database if the Azure SQL variables are absent.
+  </Step>
+
+  <Step title="Build and start the container">
+    ```bash
+    docker-compose up --build
+    ```
+
+    Docker Compose builds the image from the local `Dockerfile` and starts a single `api` container named `taskforge-api` on the `taskforge-network` bridge network.
+  </Step>
+
+  <Step title="Verify the API is running">
+    ```bash
+    curl http://localhost:5000/api/health
+    ```
+
+    The container exposes port **5000**. Docker also runs a health check against this endpoint every 30 seconds.
+  </Step>
+</Steps>
+
+## What the Dockerfile does
+
+```dockerfile
+# Use Python 3.11 slim image
+FROM python:3.11-slim
+
+WORKDIR /app
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    FLASK_APP=run.py
+
+# Install system dependencies for pyodbc and SQL Server
+RUN apt-get update && apt-get install -y \
+    curl \
+    gnupg \
+    unixodbc \
+    unixodbc-dev \
+    && curl https://packages.microsoft.com/keys/microsoft.asc | apt-key add - \
+    && curl https://packages.microsoft.com/config/debian/11/prod.list > /etc/apt/sources.list.d/mssql-release.list \
+    && apt-get update \
+    && ACCEPT_EULA=Y apt-get install -y msodbcsql17 \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+RUN mkdir -p logs
+
+EXPOSE 5000
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:5000/api/health || exit 1
+
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "4", "--timeout", "120", "run:app"]
+```
+
+Key steps:
+
+1. **Base image** — `python:3.11-slim` keeps the image small.
+2. **ODBC driver** — installs `unixodbc`, `unixodbc-dev`, and Microsoft's `msodbcsql17` so the app can connect to Azure SQL Server via pyodbc.
+3. **Dependency caching** — `requirements.txt` is copied before the application source so the `pip install` layer is only rebuilt when dependencies change.
+4. **Gunicorn** — the container runs 4 Gunicorn workers with a 120-second timeout. This is the same server used in production.
+
+## Environment variables in Docker context
+
+The `docker-compose.yml` forwards variables from your shell or `.env` file into the container using `${VAR:-default}` syntax:
+
+```yaml
+services:
+  api:
+    build: .
+    container_name: taskforge-api
+    ports:
+      - "5000:5000"
+    environment:
+      - FLASK_ENV=development
+      - FLASK_APP=run.py
+      - SECRET_KEY=${SECRET_KEY:-dev-secret-key-change-in-production}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-jwt-secret-key-change-in-production}
+      - AZURE_SQL_SERVER=${AZURE_SQL_SERVER}
+      - AZURE_SQL_DATABASE=${AZURE_SQL_DATABASE:-taskforge_db}
+      - AZURE_SQL_USER=${AZURE_SQL_USER}
+      - AZURE_SQL_PASSWORD=${AZURE_SQL_PASSWORD}
+      - AZURE_SQL_PORT=${AZURE_SQL_PORT:-1433}
+      - CORS_ORIGINS=http://localhost:3000,http://localhost:5173
+    volumes:
+      - ./logs:/app/logs
+    restart: unless-stopped
+```
+
+Docker Compose automatically reads a `.env` file in the same directory. You do not need to pass it explicitly.
+
+<Note>The `.dockerignore` file excludes `.env`, `.env.local`, and `.env.*.local` from the build context. Secrets never end up baked into the image.</Note>
+
+## Stopping the containers
+
+```bash
+# Stop and remove containers, but keep the image
+docker-compose down
+
+# Stop, remove containers, and remove the built image
+docker-compose down --rmi local
+```
+
+Log files written to `./logs` persist on the host because the directory is mounted as a volume.
+
+## Production considerations
+
+When deploying to **Azure App Service**, use `startup.sh` instead of the default Gunicorn command. The script initialises the database schema before starting the server:
+
+```bash
+#!/bin/bash
+# Startup script for Azure App Service
+
+export PYTHONPATH=/home/site/wwwroot:$PYTHONPATH
+mkdir -p /home/site/wwwroot/logs
+
+# Initialize database
+python -c "from app import create_app, db; app = create_app('production'); app.app_context().push(); db.create_all()" \
+  || echo "Database initialization failed or already initialized"
+
+# Start Gunicorn
+gunicorn --bind=0.0.0.0:8000 \
+         --workers=4 \
+         --timeout=120 \
+         --access-logfile /home/site/wwwroot/logs/access.log \
+         --error-logfile /home/site/wwwroot/logs/error.log \
+         --log-level info \
+         "run:app"
+```
+
+Note that Azure App Service expects the app on port **8000**, while the Docker container uses **5000**.
+
+<Warning>
+Set `SECRET_KEY` and `JWT_SECRET_KEY` to strong random values via Azure App Service application settings. Never use the placeholder defaults from `.env.example` in production.
+</Warning>

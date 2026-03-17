@@ -1,0 +1,226 @@
+---
+title: CI/CD pipeline
+description: Automated build, test, and deployment pipeline using GitHub Actions, SonarCloud, and Azure.
+---
+
+TaskForge API uses two separate GitHub Actions workflows:
+
+| Workflow | File | Trigger | Purpose |
+|---|---|---|---|
+| Build, Test and Deploy | `main_task-forge.yml` | Push to `main`/`master` | Builds, tests, and deploys to Azure App Service |
+| Code Quality Analysis | `code-quality.yml` | Push or PR to `main`, `master`, `develop` | SonarCloud analysis and AXE accessibility tests |
+
+## Deployment pipeline
+
+### Trigger
+
+The deployment pipeline runs on every push to `main` or `master`, and can also be triggered manually via `workflow_dispatch`.
+
+```yaml
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+```
+
+### Build → test → deploy flow
+
+<Steps>
+  <Step title="Build job">
+    Runs on `ubuntu-latest`. Sets up Python 3.11, installs dependencies from `requirements.txt`, and packages the app into a zip artifact — excluding `.git`, `venv`, `__pycache__`, `.env`, `tests`, and coverage artefacts.
+
+    ```yaml
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Zip artifact for deployment
+      run: |
+        zip -r release.zip . -x "*.git*" "venv/*" "__pycache__/*" "*.pyc" ".env" "tests/*" "htmlcov/*" ".pytest_cache/*"
+    ```
+
+    The zip is uploaded as a GitHub Actions artifact named `python-app`.
+  </Step>
+
+  <Step title="Test job">
+    Runs after `build` (`needs: build`). Checks out the source, installs dependencies again, then runs pytest with coverage enforcement:
+
+    ```yaml
+    - name: Run tests with coverage
+      run: |
+        pytest --cov=app --cov-report=html --cov-report=xml --cov-report=term --cov-fail-under=70 -v
+    ```
+
+    `--cov-fail-under=70` causes the step to exit non-zero if coverage drops below 70 %. Because the `deploy` job depends on `test`, a failing coverage check blocks deployment entirely.
+
+    HTML and XML coverage reports are uploaded as artifacts (`test-results` and `coverage-report`) regardless of outcome (`if: always()`).
+
+    On pull requests, a coverage summary comment is posted automatically via `py-cov-action/python-coverage-comment-action@v3`.
+  </Step>
+
+  <Step title="Deploy job">
+    Runs after both `build` and `test` succeed (`needs: [build, test]`). Downloads the `python-app` artifact, unzips it, authenticates to Azure using OIDC, then deploys to the `Production` slot of the `task-forge` App Service.
+
+    ```yaml
+    - name: Login to Azure
+      uses: azure/login@v2
+      with:
+        client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_8B5154DB47204797813A0BF3D3CD7549 }}
+        tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_FEEBA7ED63A54A02BDBA41DEA65AE6E9 }}
+        subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_D9E52638C64344638E91E510FA0B5116 }}
+
+    - name: Deploy to Azure Web App
+      uses: azure/webapps-deploy@v3
+      with:
+        app-name: "task-forge"
+        slot-name: "Production"
+        package: .
+    ```
+
+    The deploy job requires the `id-token: write` permission so GitHub can mint an OIDC token for Azure.
+  </Step>
+</Steps>
+
+### Coverage gate
+
+The `--cov-fail-under=70` flag in the test step is the coverage gate. If test coverage across the `app` package falls below 70 %, pytest exits with a non-zero code, the test job fails, and the deploy job never starts. The current project maintains >73 % coverage across 268 tests.
+
+## Code quality pipeline
+
+The code quality pipeline runs two independent jobs in parallel.
+
+### SonarCloud analysis
+
+This job checks out the full git history (`fetch-depth: 0` is required for accurate blame and new-code analysis), runs the full test suite to produce a `coverage.xml` report, then submits everything to SonarCloud.
+
+```yaml
+- name: Run tests with coverage
+  run: |
+    pytest --cov=app --cov-report=xml --cov-report=term -v
+
+- name: SonarCloud Scan
+  uses: SonarSource/sonarcloud-github-action@master
+  env:
+    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+```
+
+SonarCloud reads its configuration from `sonar-project.properties`:
+
+```properties
+# Project identification
+sonar.projectKey=YamiDarknezz_task-forge-api
+sonar.organization=yamidarknezz
+
+# Project metadata
+sonar.projectName=TaskForge API
+sonar.projectVersion=1.0.0
+
+# Source code
+sonar.sources=app
+sonar.sourceEncoding=UTF-8
+
+# Exclusions
+sonar.exclusions=\
+  **/__pycache__/**,\
+  **/*.pyc,\
+  **/tests/**,\
+  **/.venv/**,\
+  **/venv/**,\
+  **/htmlcov/**,\
+  **/.pytest_cache/**,\
+  **/migrations/**,\
+  **/.scannerwork/**
+
+# Test settings
+sonar.tests=tests
+sonar.test.inclusions=tests/**/*.py
+
+# Python specific
+sonar.python.version=3.11
+
+# Coverage
+sonar.python.coverage.reportPaths=coverage.xml
+
+# Duplications
+sonar.cpd.exclusions=**/models/**,**/config.py
+```
+
+SonarCloud analyses bugs, security vulnerabilities, code smells, coverage, and duplications. The `code-quality.yml` workflow does **not** block deployment — it runs independently and results appear on the SonarCloud dashboard.
+
+### AXE accessibility tests
+
+This job starts the Flask app in development mode, waits for it to respond, then runs AXE-core via Playwright against the Swagger UI.
+
+```yaml
+- name: Start Flask API
+  run: |
+    python run.py &
+    echo $! > flask_pid.txt
+    sleep 10
+  env:
+    FLASK_ENV: development
+    SECRET_KEY: test-secret-key-for-ci
+    JWT_SECRET_KEY: test-jwt-secret-key-for-ci
+
+- name: Wait for API to be ready
+  run: |
+    timeout 30 bash -c 'until curl -f http://localhost:5000/api/health; do sleep 2; done'
+
+- name: Run AXE accessibility tests
+  run: node tests/accessibility/axe-swagger-test.js
+  continue-on-error: true
+```
+
+The `continue-on-error: true` flag means an AXE failure is recorded but does not fail the workflow. An HTML report is uploaded as an artifact (`axe-accessibility-report`) on every run.
+
+## OIDC-based Azure authentication
+
+The deployment pipeline uses OpenID Connect (OIDC) to authenticate to Azure. This means:
+
+- No client secret is stored in GitHub secrets
+- GitHub mints a short-lived OIDC token for each workflow run
+- Azure validates the token against the configured federated identity credential
+- The deploy job requires `permissions: id-token: write` to request the token
+
+This is more secure than storing a long-lived client secret because the token is single-use and tied to the specific workflow run.
+
+## Required GitHub secrets
+
+Add these under **Settings** → **Secrets and variables** → **Actions** in your repository.
+
+### Deployment secrets
+
+| Secret | Description |
+|---|---|
+| `AZUREAPPSERVICE_CLIENTID_8B5154DB47204797813A0BF3D3CD7549` | Client ID of the Azure Entra ID app registration used for OIDC authentication |
+| `AZUREAPPSERVICE_TENANTID_FEEBA7ED63A54A02BDBA41DEA65AE6E9` | Azure Active Directory tenant ID |
+| `AZUREAPPSERVICE_SUBSCRIPTIONID_D9E52638C64344638E91E510FA0B5116` | Azure subscription ID containing the App Service |
+
+### Code quality secrets
+
+| Secret | Description |
+|---|---|
+| `SONAR_TOKEN` | API token generated in your SonarCloud account. Required for SonarCloud analysis. |
+
+<Note>
+  `GITHUB_TOKEN` is provided automatically by GitHub Actions and does not need to be added manually. It is used by both the coverage comment action and the SonarCloud action to read PR information.
+</Note>
+
+## Branch strategy
+
+| Branch | Deployment pipeline | Code quality pipeline |
+|---|---|---|
+| `main` / `master` | Runs on push — triggers full build, test, deploy | Runs on push and PR |
+| `develop` | Does not trigger deployment | Runs on push and PR |
+| Any other branch | Does not trigger either pipeline | Does not trigger either pipeline |
+
+Push to `main` is the only action that deploys to production.

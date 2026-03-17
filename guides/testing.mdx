@@ -1,0 +1,190 @@
+---
+title: Testing
+description: Run the TaskForge API test suite, understand test categories, and integrate with CI/CD.
+---
+
+TaskForge API uses [pytest](https://docs.pytest.org/) with [pytest-cov](https://pytest-cov.readthedocs.io/) for unit and integration testing. All test configuration lives in `pytest.ini`.
+
+## Running the test suite
+
+### Full suite with coverage
+
+The default `pytest` invocation (configured in `pytest.ini`) already enables coverage reporting:
+
+```bash
+pytest
+```
+
+This runs all tests, enforces a **70% coverage minimum**, and writes three coverage reports:
+
+- `htmlcov/` — browse-able HTML report
+- Terminal — missing-line summary printed to stdout
+- `coverage.xml` — machine-readable report for CI tools
+
+### Explicit coverage flags
+
+```bash
+pytest --cov=app --cov-report=html --cov-report=term
+```
+
+### Running a specific test file
+
+```bash
+# Authentication tests only
+pytest tests/test_auth.py
+
+# Task tests only
+pytest tests/test_tasks.py
+
+# Services layer tests only
+pytest tests/test_services.py
+```
+
+### Running tests by marker
+
+```bash
+# All unit tests
+pytest -m unit
+
+# All authentication-related tests
+pytest -m auth
+
+# Skip slow tests
+pytest -m "not slow"
+```
+
+## Test categories and counts
+
+| File | Marker | Tests | Description |
+|---|---|---|---|
+| `test_auth.py` | `auth` | 17 | Registration, login, token refresh, logout, password change |
+| `test_tasks.py` | `tasks` | 22 | CRUD, filtering, pagination, statistics, export |
+| `test_users.py` | `users` | 18 | User management, profile updates, admin operations |
+| `test_tags.py` | `tags` | 18 | Tag CRUD, colour validation, admin-only operations |
+| `test_services.py` | — | 72 | Service-layer business logic in isolation |
+| `test_models.py` | — | 23 | SQLAlchemy model methods and relationships |
+| `test_middleware.py` | — | 11 | Auth middleware, RBAC decorators |
+| `test_helpers.py` | — | 29 | Utility functions, response builders, pagination helpers |
+| `test_validators.py` | — | 58 | Input validation rules across all schemas |
+
+## Coverage threshold
+
+`pytest.ini` sets `--cov-fail-under=70`. If overall coverage drops below 70%, pytest exits with a non-zero code and the CI build fails:
+
+```ini
+[pytest]
+testpaths = tests
+python_files = test_*.py
+python_classes = Test*
+python_functions = test_*
+
+addopts =
+    -v
+    --strict-markers
+    --tb=short
+    --cov=app
+    --cov-report=html
+    --cov-report=term-missing
+    --cov-report=xml
+    --cov-fail-under=70
+
+markers =
+    unit: Unit tests
+    integration: Integration tests
+    slow: Slow running tests
+    auth: Authentication tests
+    tasks: Task-related tests
+    users: User-related tests
+    tags: Tag-related tests
+```
+
+## Understanding conftest.py fixtures
+
+`tests/conftest.py` provides shared fixtures that every test module can use. Key fixtures:
+
+### Application and database setup
+
+```python
+@pytest.fixture(scope='session')
+def app():
+    """Create application for testing"""
+    app = create_app('testing')
+    with app.app_context():
+        db.create_all()
+        # Seed admin and user roles
+        ...
+        yield app
+        db.session.remove()
+        db.drop_all()
+
+@pytest.fixture(scope='function')
+def client(app):
+    """Create test client"""
+    return app.test_client()
+
+@pytest.fixture(scope='function')
+def init_database(app):
+    """Initialize database for each test — cleans all tables except roles after each function"""
+    ...
+```
+
+The `app` fixture has **session scope** — the Flask app and its SQLite in-memory database are created once per test session. The `init_database` fixture has **function scope** and cleans all rows (except `roles`) after each test, keeping tests isolated without recreating the schema.
+
+### User fixtures
+
+| Fixture | Role | Credentials |
+|---|---|---|
+| `admin_user` | admin | `admin@test.com` / `Admin123!` |
+| `regular_user` | user | `user@test.com` / `User123!` |
+| `another_user` | user | `another@test.com` / `Another123!` |
+
+### Token fixtures
+
+```python
+@pytest.fixture
+def admin_token(app, admin_user):
+    """Create admin access token"""
+    with app.app_context():
+        return create_access_token(identity=str(admin_user.id))
+
+@pytest.fixture
+def user_token(app, regular_user):
+    """Create user access token"""
+    with app.app_context():
+        return create_access_token(identity=str(regular_user.id))
+```
+
+The `admin_refresh_token` and `user_refresh_token` fixtures additionally persist the token in the database, mirroring production behaviour.
+
+### Request header fixtures
+
+```python
+@pytest.fixture
+def auth_headers(user_token):
+    return {
+        'Authorization': f'Bearer {user_token}',
+        'Content-Type': 'application/json'
+    }
+
+@pytest.fixture
+def admin_auth_headers(admin_token):
+    return {
+        'Authorization': f'Bearer {admin_token}',
+        'Content-Type': 'application/json'
+    }
+```
+
+Pass `auth_headers` or `admin_auth_headers` directly to `client.get()` / `client.post()` in your tests.
+
+### Task and tag fixtures
+
+- `sample_task` — single `PENDING` / `MEDIUM` task owned by `regular_user`
+- `sample_tasks` — three tasks with statuses `pending`, `in_progress`, and `completed`
+- `sample_tag` — single tag with name `TestTag` and colour `#FF5733`
+- `sample_tags` — three tags: `Work`, `Personal`, `Urgent`
+
+## CI/CD integration
+
+Tests run automatically in GitHub Actions on every push and pull request. The workflow uses the same `pytest` command and enforces the **>70% coverage gate**. A failing coverage check blocks the merge.
+
+<Tip>Run `pytest --tb=short -q` locally for a compact summary when iterating quickly. The full verbose output (`-v`, set in `pytest.ini`) is more useful in CI logs.</Tip>

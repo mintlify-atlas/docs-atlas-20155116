@@ -1,0 +1,322 @@
+---
+title: Authentication
+description: How JWT access tokens, refresh tokens, and role-based access control work in TaskForge.
+---
+
+TaskForge uses JSON Web Tokens (JWT) for authentication and a two-role RBAC system to control access to resources. This page explains how tokens are issued, how to use them, how to refresh and revoke them, and what each role can do.
+
+## How JWT works in TaskForge
+
+When you log in, the API issues two tokens:
+
+- **Access token** — a short-lived JWT you include in every API request. Expires after **1 hour** (3600 seconds).
+- **Refresh token** — a long-lived token stored server-side in the `refresh_tokens` table. Expires after **30 days** (2592000 seconds). Use it to get a new access token without re-entering credentials.
+
+Tokens are read from the `Authorization` header with the `Bearer` scheme, as configured in `app/config.py`:
+
+```python
+JWT_TOKEN_LOCATION = ['headers']
+JWT_HEADER_NAME = 'Authorization'
+JWT_HEADER_TYPE = 'Bearer'
+JWT_IDENTITY_CLAIM = 'sub'
+```
+
+<Note>
+  Token lifetimes are controlled by `JWT_ACCESS_TOKEN_EXPIRES` and `JWT_REFRESH_TOKEN_EXPIRES` in your `.env` file. The defaults (`3600` and `2592000`) are applied when these variables are absent.
+</Note>
+
+## Registration
+
+Create a new account with `POST /api/auth/register`. Registration is rate-limited to **5 requests per hour** per IP.
+
+**Required fields:** `username`, `email`, `password`
+**Optional fields:** `first_name`, `last_name`
+
+<Tabs>
+  <Tab title="curl">
+    ```bash
+    curl -X POST http://localhost:5000/api/auth/register \
+      -H "Content-Type: application/json" \
+      -d '{
+        "username": "johndoe",
+        "email": "john@example.com",
+        "password": "SecurePass123",
+        "first_name": "John",
+        "last_name": "Doe"
+      }'
+    ```
+  </Tab>
+  <Tab title="Python">
+    ```python
+    import requests
+
+    response = requests.post(
+        "http://localhost:5000/api/auth/register",
+        json={
+            "username": "johndoe",
+            "email": "john@example.com",
+            "password": "SecurePass123",
+            "first_name": "John",
+            "last_name": "Doe",
+        },
+    )
+    print(response.json())
+    ```
+  </Tab>
+</Tabs>
+
+**Response `201`:**
+
+```json
+{
+  "success": true,
+  "message": "Usuario registrado con exito",
+  "data": {
+    "id": 1,
+    "username": "johndoe",
+    "email": "john@example.com",
+    "first_name": "John",
+    "last_name": "Doe",
+    "full_name": "John Doe",
+    "is_active": true,
+    "created_at": "2024-01-15T10:30:00",
+    "role": { "id": 2, "name": "user", "description": null }
+  }
+}
+```
+
+All new accounts receive the `user` role. Passwords are hashed with bcrypt before storage — the plaintext value is never persisted.
+
+## Login
+
+Authenticate with `POST /api/auth/login`. Login is rate-limited to **10 requests per hour** per IP.
+
+**Required fields:** `email`, `password`
+
+<Tabs>
+  <Tab title="curl">
+    ```bash
+    curl -X POST http://localhost:5000/api/auth/login \
+      -H "Content-Type: application/json" \
+      -d '{
+        "email": "john@example.com",
+        "password": "SecurePass123"
+      }'
+    ```
+  </Tab>
+  <Tab title="Python">
+    ```python
+    import requests
+
+    response = requests.post(
+        "http://localhost:5000/api/auth/login",
+        json={"email": "john@example.com", "password": "SecurePass123"},
+    )
+    tokens = response.json()["data"]
+    access_token = tokens["access_token"]
+    refresh_token = tokens["refresh_token"]
+    ```
+  </Tab>
+</Tabs>
+
+**Response `200`:**
+
+```json
+{
+  "success": true,
+  "message": "Inicio de sesion exitoso",
+  "data": {
+    "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "user": {
+      "id": 1,
+      "username": "johndoe",
+      "email": "john@example.com",
+      "full_name": "John Doe",
+      "is_active": true,
+      "role": { "id": 2, "name": "user" }
+    }
+  }
+}
+```
+
+Store both tokens. The refresh token is also persisted server-side in the `refresh_tokens` table with its expiry timestamp.
+
+## Using the authorization header
+
+Include the access token in every protected request:
+
+<Tabs>
+  <Tab title="curl">
+    ```bash
+    curl http://localhost:5000/api/tasks \
+      -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+    ```
+  </Tab>
+  <Tab title="Python">
+    ```python
+    import requests
+
+    headers = {"Authorization": f"Bearer {access_token}"}
+    response = requests.get("http://localhost:5000/api/tasks", headers=headers)
+    print(response.json())
+    ```
+  </Tab>
+</Tabs>
+
+The `current_user_required` decorator in `app/middleware/auth.py` verifies the token, looks up the user by the `sub` claim, and confirms the account is active before the route handler runs:
+
+```python
+def current_user_required(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        verify_jwt_in_request()
+        current_user = get_current_user()
+        if not current_user:
+            return jsonify({'success': False, 'error': 'User Not Found', ...}), 404
+        kwargs['current_user'] = current_user
+        return fn(*args, **kwargs)
+    return wrapper
+```
+
+## Refreshing tokens
+
+When your access token expires, use the refresh token to get a new one — no need to log in again.
+
+Send the refresh token in the `Authorization` header with `POST /api/auth/refresh`:
+
+<Tabs>
+  <Tab title="curl">
+    ```bash
+    curl -X POST http://localhost:5000/api/auth/refresh \
+      -H "Authorization: Bearer <refresh_token>"
+    ```
+  </Tab>
+  <Tab title="Python">
+    ```python
+    import requests
+
+    response = requests.post(
+        "http://localhost:5000/api/auth/refresh",
+        headers={"Authorization": f"Bearer {refresh_token}"},
+    )
+    new_access_token = response.json()["data"]["access_token"]
+    ```
+  </Tab>
+</Tabs>
+
+**Response `200`:**
+
+```json
+{
+  "success": true,
+  "message": "Token refrescado con exito",
+  "data": {
+    "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+  }
+}
+```
+
+The `refresh_token_required` decorator validates that the incoming JWT is specifically a refresh token (`verify_jwt_in_request(refresh=True)`). The server also checks that the token record exists in the database and has not been revoked or expired.
+
+<Warning>
+  A refresh token is only valid once per session. If the token has been revoked — for example, after a logout or password change — the server returns `401`.
+</Warning>
+
+## Logout and token revocation
+
+Logout by sending the refresh token in the request body to `POST /api/auth/logout`. This sets `is_revoked = True` on the `RefreshToken` record in the database.
+
+<Tabs>
+  <Tab title="curl">
+    ```bash
+    curl -X POST http://localhost:5000/api/auth/logout \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer <access_token>" \
+      -d '{"refresh_token": "<refresh_token>"}'
+    ```
+  </Tab>
+  <Tab title="Python">
+    ```python
+    import requests
+
+    requests.post(
+        "http://localhost:5000/api/auth/logout",
+        headers={"Authorization": f"Bearer {access_token}"},
+        json={"refresh_token": refresh_token},
+    )
+    ```
+  </Tab>
+</Tabs>
+
+**Response `200`:**
+
+```json
+{
+  "success": true,
+  "message": "Sesion cerrada con exito"
+}
+```
+
+<Note>
+  Changing your password also revokes **all** active refresh tokens for your account, as a security measure (`RefreshToken.query.filter_by(user_id=user.id, is_revoked=False).update({'is_revoked': True})`).
+</Note>
+
+## Roles and RBAC
+
+TaskForge has two roles defined in `app/models/user.py`:
+
+```python
+class RoleType(enum.Enum):
+    ADMIN = 'admin'
+    USER  = 'user'
+```
+
+| Permission | User | Admin |
+|---|---|---|
+| Register / login | Yes | Yes |
+| Create, read, update, delete own tasks | Yes | Yes |
+| Read, update, delete any user's tasks | No | Yes |
+| Access user management endpoints (`/api/users/*`) | No | Yes |
+| View all tasks across all users | No | Yes |
+
+All new registrations receive the `user` role. Admins must be assigned through direct database access or a seeding script.
+
+### Enforcing roles in code
+
+Two decorators in `app/middleware/rbac.py` handle authorization:
+
+- **`@admin_required`** — rejects non-admin users with `403 Forbidden`.
+- **`@role_required(*roles)`** — accepts a list of allowed `RoleType` values.
+
+```python
+# Requires admin role
+@admin_required
+def admin_only_route(current_user):
+    ...
+
+# Requires admin or user role
+@role_required(RoleType.ADMIN, RoleType.USER)
+def any_authenticated_route(current_user):
+    ...
+```
+
+The `is_admin` property on the `User` model drives these checks:
+
+```python
+@property
+def is_admin(self):
+    return self.role.name == RoleType.ADMIN.value
+```
+
+## Security best practices
+
+<Warning>
+  Never expose your `JWT_SECRET_KEY` or `SECRET_KEY` values. Anyone with these keys can forge valid tokens for any user, including admins.
+</Warning>
+
+- **Store tokens securely.** In browser clients, prefer `HttpOnly` cookies over `localStorage` to protect against XSS. In server-side or CLI clients, use a secrets manager or environment variable.
+- **Use short-lived access tokens.** The default 1-hour expiry limits the damage window if a token is leaked.
+- **Revoke refresh tokens on logout.** The server enforces this, but ensure your client always calls `POST /api/auth/logout` when a session ends.
+- **Rotate secrets in production.** Change `JWT_SECRET_KEY` and `SECRET_KEY` from the placeholder values in `.env.example` before any deployment.
+- **Do not log tokens.** Avoid printing or logging raw JWT strings; they are bearer credentials.

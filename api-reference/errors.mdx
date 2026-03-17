@@ -1,0 +1,182 @@
+---
+title: Error codes
+description: HTTP error codes returned by the TaskForge API, with example response bodies for each.
+---
+
+All error responses follow the same envelope structure:
+
+```json
+{
+  "success": false,
+  "error": "Short error label",
+  "message": "Human-readable description"
+}
+```
+
+Some error responses from route handlers omit the `error` field and only include `success` and `message`.
+
+## 400 Bad request
+
+Returned when the request body is missing, malformed, or fails field-level validation.
+
+**Common causes:** missing required fields, empty request body, invalid field values.
+
+```json
+{
+  "success": false,
+  "error": "Peticion Incorrecta",
+  "message": "400 Bad Request: ..."
+}
+```
+
+Route handlers that detect missing fields return a more specific message:
+
+```json
+{
+  "success": false,
+  "message": "No se proporcionaron datos"
+}
+```
+
+## 401 Unauthorized
+
+Returned when authentication is missing or the provided token is invalid, expired, or revoked.
+
+**Missing token:**
+
+```json
+{
+  "success": false,
+  "error": "Autorizacion Requerida",
+  "message": "La peticion no contiene un token valido"
+}
+```
+
+**Expired token:**
+
+```json
+{
+  "success": false,
+  "error": "Token Expirado",
+  "message": "El token ha expirado"
+}
+```
+
+**Invalid token signature:**
+
+```json
+{
+  "success": false,
+  "error": "Token Invalido",
+  "message": "Fallo la verificacion de firma"
+}
+```
+
+**Revoked token:**
+
+```json
+{
+  "success": false,
+  "error": "Token Revocado",
+  "message": "El token ha sido revocado"
+}
+```
+
+**Invalid credentials (login):**
+
+```json
+{
+  "success": false,
+  "message": "Correo electronico o contrasena invalidos"
+}
+```
+
+## 403 Forbidden
+
+Returned when the authenticated user does not have permission to perform the requested action. This is enforced by RBAC middleware (`admin_required`).
+
+```json
+{
+  "success": false,
+  "error": "Prohibido",
+  "message": "No tienes permiso para acceder a este recurso"
+}
+```
+
+Also returned when an account is inactive:
+
+```json
+{
+  "success": false,
+  "message": "La cuenta esta inactiva"
+}
+```
+
+## 404 Not found
+
+Returned when the requested resource does not exist.
+
+```json
+{
+  "success": false,
+  "error": "No Encontrado",
+  "message": "Recurso no encontrado"
+}
+```
+
+## 409 Conflict
+
+Returned when a uniqueness constraint is violated — for example, registering with a username or email that is already taken, or creating a tag with a name that already exists.
+
+```json
+{
+  "success": false,
+  "message": "El nombre de usuario ya existe"
+}
+```
+
+```json
+{
+  "success": false,
+  "message": "El correo electronico ya existe"
+}
+```
+
+## 422 Unprocessable entity
+
+Returned when the request is syntactically valid but the data fails business-logic validation (for example, a password that does not meet complexity requirements).
+
+```json
+{
+  "success": false,
+  "message": "La contrasena debe tener al menos 8 caracteres"
+}
+```
+
+<Note>
+The TaskForge API returns field validation errors as `400` responses from route handlers rather than `422`. A generic `422` can still be issued by the framework in some edge cases.
+</Note>
+
+## 429 Too many requests
+
+Returned when you exceed a rate limit. See the [API overview](/api-reference/overview#rate-limiting) for per-endpoint limits.
+
+```json
+{
+  "success": false,
+  "error": "Limite de Velocidad Excedido",
+  "message": "Demasiadas peticiones. Por favor intentalo de nuevo mas tarde."
+}
+```
+
+## 500 Internal server error
+
+Returned when an unexpected server-side error occurs. The database session is rolled back automatically before the response is sent.
+
+```json
+{
+  "success": false,
+  "error": "Error Interno del Servidor",
+  "message": "Ocurrio un error inesperado"
+}
+```

@@ -1,0 +1,168 @@
+---
+title: API overview
+description: Base URLs, available endpoints, authentication, pagination, sorting, and rate limiting for the TaskForge API.
+---
+
+## Base URL
+
+| Environment | Base URL |
+|---|---|
+| Production | `https://your-domain.com/api` |
+| Local development | `http://localhost:5000/api` |
+
+All paths in this reference are relative to the base URL.
+
+## Interactive docs
+
+A Swagger UI is available at `/api/docs`. You can use it to explore and test every endpoint directly in the browser.
+
+## Endpoints
+
+### Authentication
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/auth/register` | Register a new user |
+| `POST` | `/auth/login` | Log in and receive tokens |
+| `POST` | `/auth/refresh` | Exchange a refresh token for a new access token |
+| `POST` | `/auth/logout` | Log out and revoke the refresh token |
+| `GET` | `/auth/me` | Get the current user's profile |
+| `POST` | `/auth/change-password` | Change the current user's password |
+
+### Tasks
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/tasks` | List tasks with filtering, pagination, and sorting |
+| `POST` | `/tasks` | Create a new task |
+| `GET` | `/tasks/{task_id}` | Get a single task |
+| `PUT` / `PATCH` | `/tasks/{task_id}` | Update a task |
+| `DELETE` | `/tasks/{task_id}` | Delete a task |
+| `POST` | `/tasks/{task_id}/complete` | Mark a task as completed |
+| `GET` | `/tasks/statistics` | Get task statistics for the current user |
+| `GET` | `/tasks/export` | Export tasks as CSV or JSON |
+
+### Users
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/users` | List all users (admin only) |
+| `GET` | `/users/{user_id}` | Get a single user |
+| `PUT` / `PATCH` | `/users/{user_id}` | Update a user |
+| `DELETE` | `/users/{user_id}` | Delete a user (admin only) |
+| `POST` | `/users/{user_id}/activate` | Activate a user account (admin only) |
+| `POST` | `/users/{user_id}/deactivate` | Deactivate a user account (admin only) |
+
+### Tags
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/tags` | List all tags |
+| `POST` | `/tags` | Create a new tag |
+| `GET` | `/tags/{tag_id}` | Get a single tag |
+| `PUT` / `PATCH` | `/tags/{tag_id}` | Update a tag (admin only) |
+| `DELETE` | `/tags/{tag_id}` | Delete a tag (admin only) |
+
+### Health
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/health` | Check API and database status |
+
+## Authentication
+
+Most endpoints require a valid access token. Pass it in the `Authorization` header using the `Bearer` scheme:
+
+```http
+Authorization: Bearer <your_access_token>
+```
+
+Obtain an access token by calling `POST /auth/login`. The response includes both an `access_token` (short-lived) and a `refresh_token` (long-lived). Use the refresh token with `POST /auth/refresh` to get a new access token when it expires.
+
+<Warning>
+The refresh token endpoint also expects the token in an `Authorization: Bearer` header — not the access token.
+</Warning>
+
+## Response format
+
+All responses follow a consistent envelope structure:
+
+```json
+{
+  "success": true,
+  "message": "Optional human-readable message",
+  "data": { ... }
+}
+```
+
+Error responses use the same shape with `success: false`:
+
+```json
+{
+  "success": false,
+  "message": "Description of what went wrong",
+  "error": "Short error label"
+}
+```
+
+## Pagination
+
+List endpoints accept the following query parameters:
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `page` | integer | `1` | Page number (1-indexed) |
+| `per_page` | integer | `10` | Items per page (capped at `100`) |
+
+Paginated responses include a `pagination` object in `data`:
+
+```json
+{
+  "success": true,
+  "data": {
+    "items": [ ... ],
+    "pagination": {
+      "page": 1,
+      "per_page": 10,
+      "total": 42,
+      "total_pages": 5,
+      "has_next": true,
+      "has_prev": false
+    }
+  }
+}
+```
+
+## Sorting
+
+List endpoints that support sorting accept these query parameters:
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `sort_by` | string | varies by endpoint | Field name to sort by |
+| `sort_order` | `asc` \| `desc` | `desc` | Sort direction |
+
+If an unsupported `sort_by` value is provided, the endpoint falls back to its default sort field.
+
+## Rate limiting
+
+Rate limits are enforced per IP address. Endpoints with stricter limits are noted individually in their reference pages.
+
+| Scope | Default limit |
+|---|---|
+| Global (where applied) | Configured per endpoint |
+| Register | 5 per hour |
+| Login | 10 per hour |
+| Change password | 3 per hour |
+| Create task | 50 per hour |
+| Create tag | 20 per hour |
+
+When you exceed a rate limit, the API returns a `429 Too Many Requests` response:
+
+```json
+{
+  "success": false,
+  "error": "Limite de Velocidad Excedido",
+  "message": "Demasiadas peticiones. Por favor intentalo de nuevo mas tarde."
+}
+```

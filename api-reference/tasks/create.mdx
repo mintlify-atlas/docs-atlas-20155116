@@ -1,0 +1,158 @@
+---
+title: Create a task
+description: Create a new task for the authenticated user.
+---
+
+Creates a new task owned by the authenticated user. The task is assigned to the current user automatically — you cannot create tasks on behalf of other users.
+
+<Info>
+  **Authentication required.** Include a valid Bearer token in the `Authorization` header.
+</Info>
+
+<Warning>
+  This endpoint is rate-limited to **50 requests per hour** per user.
+</Warning>
+
+## Request body
+
+<ParamField body="title" type="string" required>
+  Task title. Must be between 1 and 200 characters.
+</ParamField>
+
+<ParamField body="description" type="string">
+  Optional task description. Maximum 5000 characters.
+</ParamField>
+
+<ParamField body="status" type="string" default="pending">
+  Initial task status. Allowed values: `pending`, `in_progress`, `completed`, `cancelled`.
+</ParamField>
+
+<ParamField body="priority" type="string" default="medium">
+  Task priority. Allowed values: `low`, `medium`, `high`, `urgent`.
+</ParamField>
+
+<ParamField body="due_date" type="string">
+  Optional due date in ISO 8601 format. Example: `2024-12-31T23:59:59`. Timezone suffix (`Z` or offset) is also accepted.
+</ParamField>
+
+<ParamField body="tags" type="integer[]">
+  Optional array of existing tag IDs to associate with the task. Tags that do not exist are silently ignored.
+</ParamField>
+
+## Response
+
+Returns the newly created task object with HTTP status `201`.
+
+<ResponseField name="success" type="boolean" required>
+  `true` on a successful response.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Confirmation message.
+</ResponseField>
+
+<ResponseField name="data" type="object" required>
+  The created task. See [Get a task](/api-reference/tasks/get) for the full field reference.
+</ResponseField>
+
+## Errors
+
+| Status | Description |
+|--------|-------------|
+| `400`  | Validation error — `title` is missing, a field exceeds its length limit, or an enum value is invalid. |
+| `401`  | Missing or invalid Bearer token. |
+| `429`  | Rate limit exceeded (50 requests/hour). |
+
+<RequestExample>
+
+```bash Minimal request
+curl --request POST \
+  --url 'https://api.example.com/api/tasks' \
+  --header 'Authorization: Bearer <token>' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "title": "Complete project documentation"
+  }'
+```
+
+```bash Full request
+curl --request POST \
+  --url 'https://api.example.com/api/tasks' \
+  --header 'Authorization: Bearer <token>' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "title": "Complete project documentation",
+    "description": "Write comprehensive API documentation",
+    "status": "in_progress",
+    "priority": "high",
+    "due_date": "2024-12-31T23:59:59",
+    "tags": [1, 2, 3]
+  }'
+```
+
+```python Python
+import requests
+
+response = requests.post(
+    "https://api.example.com/api/tasks",
+    headers={
+        "Authorization": "Bearer <token>",
+        "Content-Type": "application/json",
+    },
+    json={
+        "title": "Complete project documentation",
+        "description": "Write comprehensive API documentation",
+        "status": "in_progress",
+        "priority": "high",
+        "due_date": "2024-12-31T23:59:59",
+        "tags": [1, 2, 3],
+    },
+)
+print(response.json())
+```
+
+</RequestExample>
+
+<ResponseExample>
+
+```json 201
+{
+  "success": true,
+  "message": "Tarea creada con exito",
+  "data": {
+    "id": 42,
+    "title": "Complete project documentation",
+    "description": "Write comprehensive API documentation",
+    "status": "in_progress",
+    "priority": "high",
+    "due_date": "2024-12-31T23:59:59",
+    "completed_at": null,
+    "is_overdue": false,
+    "is_completed": false,
+    "created_at": "2024-11-01T10:00:00",
+    "updated_at": "2024-11-01T10:00:00",
+    "user_id": 7,
+    "tags": [
+      {"id": 1, "name": "docs"},
+      {"id": 2, "name": "api"},
+      {"id": 3, "name": "backend"}
+    ]
+  }
+}
+```
+
+```json 400
+{
+  "success": false,
+  "message": "Faltan campos requeridos: title"
+}
+```
+
+```json 401
+{
+  "success": false,
+  "message": "Unauthorized"
+}
+```
+
+</ResponseExample>

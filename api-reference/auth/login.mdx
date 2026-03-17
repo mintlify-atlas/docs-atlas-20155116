@@ -1,0 +1,154 @@
+---
+title: Login
+description: Authenticate with email and password to receive an access token and refresh token.
+---
+
+<Note>
+This endpoint is rate-limited to **10 requests per hour** per IP address.
+</Note>
+
+`POST /api/auth/login`
+
+## Request body
+
+<ParamField body="email" type="string" required>
+  The account email address.
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  The account password.
+</ParamField>
+
+## Response
+
+### 200 OK
+
+Authentication succeeded. Returns an access token, a refresh token, and the user object.
+
+<ResponseField name="success" type="boolean" required>
+  Always `true` on success.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Confirmation message.
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  <Expandable title="properties">
+    <ResponseField name="access_token" type="string">
+      Short-lived JWT for authenticating subsequent requests. Pass this in the `Authorization: Bearer` header.
+    </ResponseField>
+    <ResponseField name="refresh_token" type="string">
+      Long-lived token stored in the database. Use it with `POST /auth/refresh` to obtain a new access token. The token is invalidated on logout or password change.
+    </ResponseField>
+    <ResponseField name="user" type="object">
+      <Expandable title="properties">
+        <ResponseField name="id" type="integer">
+          Unique user ID.
+        </ResponseField>
+        <ResponseField name="username" type="string">
+          Username.
+        </ResponseField>
+        <ResponseField name="email" type="string">
+          Email address.
+        </ResponseField>
+        <ResponseField name="first_name" type="string">
+          First name.
+        </ResponseField>
+        <ResponseField name="last_name" type="string">
+          Last name.
+        </ResponseField>
+        <ResponseField name="full_name" type="string">
+          Combined first and last name, or username.
+        </ResponseField>
+        <ResponseField name="is_active" type="boolean">
+          Whether the account is active.
+        </ResponseField>
+        <ResponseField name="created_at" type="string">
+          ISO 8601 creation timestamp.
+        </ResponseField>
+        <ResponseField name="role" type="object">
+          Role object with `id`, `name`, and `description`.
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Error responses
+
+| Status | Cause |
+|---|---|
+| `400` | Request body is missing or `email`/`password` is absent |
+| `401` | Email or password is incorrect |
+| `403` | Account exists but is inactive |
+
+<CodeGroup>
+
+```bash curl
+curl --request POST \
+  --url http://localhost:5000/api/auth/login \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "email": "john@example.com",
+    "password": "SecurePass123"
+  }'
+```
+
+```python python
+import requests
+
+response = requests.post(
+    "http://localhost:5000/api/auth/login",
+    json={
+        "email": "john@example.com",
+        "password": "SecurePass123",
+    },
+)
+data = response.json()
+access_token = data["data"]["access_token"]
+refresh_token = data["data"]["refresh_token"]
+```
+
+</CodeGroup>
+
+**200 response:**
+
+```json
+{
+  "success": true,
+  "message": "Inicio de sesion exitoso",
+  "data": {
+    "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "user": {
+      "id": 1,
+      "username": "johndoe",
+      "email": "john@example.com",
+      "first_name": "John",
+      "last_name": "Doe",
+      "full_name": "John Doe",
+      "is_active": true,
+      "created_at": "2024-01-15T10:30:00",
+      "updated_at": "2024-01-15T10:30:00",
+      "role": {
+        "id": 1,
+        "name": "user",
+        "description": "Standard user role"
+      }
+    }
+  }
+}
+```
+
+## Using the access token
+
+Pass the `access_token` in the `Authorization` header for all authenticated requests:
+
+```bash
+curl --request GET \
+  --url http://localhost:5000/api/auth/me \
+  --header 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...'
+```
+
+Store the `refresh_token` securely. When the access token expires, call `POST /auth/refresh` with the refresh token to get a new one without requiring the user to log in again.

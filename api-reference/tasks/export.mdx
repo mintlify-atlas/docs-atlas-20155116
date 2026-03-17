@@ -1,0 +1,162 @@
+---
+title: Export tasks
+description: Download tasks as a CSV or JSON file with optional filters.
+---
+
+Exports tasks belonging to the authenticated user as a downloadable file. The response includes a `Content-Disposition: attachment` header so browsers prompt a file download.
+
+Admins export only their own tasks via this endpoint. To export tasks for all users, use the admin export API.
+
+<Info>
+  **Authentication required.** Include a valid Bearer token in the `Authorization` header.
+</Info>
+
+## Query parameters
+
+<ParamField query="format" type="string" default="csv">
+  Export format. Allowed values: `csv`, `json`.
+</ParamField>
+
+<ParamField query="status" type="string">
+  Filter exported tasks by status. Allowed values: `pending`, `in_progress`, `completed`, `cancelled`.
+</ParamField>
+
+<ParamField query="priority" type="string">
+  Filter exported tasks by priority. Allowed values: `low`, `medium`, `high`, `urgent`.
+</ParamField>
+
+<ParamField query="tag_id" type="integer">
+  Filter exported tasks to those tagged with this tag ID.
+</ParamField>
+
+<ParamField query="overdue" type="boolean">
+  When `true`, exports only tasks whose `due_date` is in the past and status is not `completed`.
+</ParamField>
+
+## Response
+
+The response body is the file content, not a JSON envelope.
+
+| Header | Value |
+|--------|-------|
+| `Content-Type` | `text/csv` for CSV, `application/json` for JSON |
+| `Content-Disposition` | `attachment; filename=tasks.csv` or `attachment; filename=tasks.json` |
+
+### CSV columns
+
+The CSV file contains one row per task with the following columns, derived from `prepare_tasks_for_export` in `export.py`:
+
+| Column | Description |
+|--------|-------------|
+| `id` | Task ID |
+| `title` | Task title |
+| `description` | Task description |
+| `status` | Task status |
+| `priority` | Task priority |
+| `due_date` | ISO 8601 due date, empty if not set |
+| `completed_at` | ISO 8601 completion timestamp, empty if not completed |
+| `is_overdue` | `True` or `False` |
+| `is_completed` | `True` or `False` |
+| `created_at` | ISO 8601 creation timestamp |
+| `updated_at` | ISO 8601 last-updated timestamp |
+| `user_id` | ID of the task owner |
+| `user_username` | Username of the task owner |
+| `user_email` | Email address of the task owner |
+| `tags` | Comma-separated list of tag names |
+
+### JSON structure
+
+The JSON export is an array of objects with the same fields as the CSV columns above. The file is pretty-printed with 2-space indentation.
+
+## Errors
+
+| Status | Description |
+|--------|-------------|
+| `404`  | No tasks match the applied filters, so there is nothing to export. |
+
+<RequestExample>
+
+```bash Export all tasks as CSV
+curl --request GET \
+  --url 'https://api.example.com/api/tasks/export' \
+  --header 'Authorization: Bearer <token>' \
+  --output tasks.csv
+```
+
+```bash Export completed tasks as JSON
+curl --request GET \
+  --url 'https://api.example.com/api/tasks/export?format=json&status=completed' \
+  --header 'Authorization: Bearer <token>' \
+  --output tasks.json
+```
+
+```bash Export overdue high-priority tasks as CSV
+curl --request GET \
+  --url 'https://api.example.com/api/tasks/export?overdue=true&priority=high' \
+  --header 'Authorization: Bearer <token>' \
+  --output overdue_tasks.csv
+```
+
+```python Python (CSV)
+import requests
+
+response = requests.get(
+    "https://api.example.com/api/tasks/export",
+    headers={"Authorization": "Bearer <token>"},
+    params={"format": "csv", "status": "in_progress"},
+)
+with open("tasks.csv", "wb") as f:
+    f.write(response.content)
+```
+
+```python Python (JSON)
+import requests
+
+response = requests.get(
+    "https://api.example.com/api/tasks/export",
+    headers={"Authorization": "Bearer <token>"},
+    params={"format": "json"},
+)
+with open("tasks.json", "wb") as f:
+    f.write(response.content)
+```
+
+</RequestExample>
+
+<ResponseExample>
+
+```csv CSV response
+id,title,description,status,priority,due_date,completed_at,is_overdue,is_completed,created_at,updated_at,user_id,user_username,user_email,tags
+42,Complete project documentation,Write comprehensive API documentation,in_progress,high,2024-12-31T23:59:59,,False,False,2024-11-01T10:00:00,2024-11-15T14:30:00,7,jsmith,jsmith@example.com,"docs, backend"
+```
+
+```json JSON response
+[
+  {
+    "id": 42,
+    "title": "Complete project documentation",
+    "description": "Write comprehensive API documentation",
+    "status": "in_progress",
+    "priority": "high",
+    "due_date": "2024-12-31T23:59:59",
+    "completed_at": null,
+    "is_overdue": false,
+    "is_completed": false,
+    "created_at": "2024-11-01T10:00:00",
+    "updated_at": "2024-11-15T14:30:00",
+    "user_id": 7,
+    "user_username": "jsmith",
+    "user_email": "jsmith@example.com",
+    "tags": "docs, backend"
+  }
+]
+```
+
+```json 404
+{
+  "success": false,
+  "message": "No hay tareas para exportar"
+}
+```
+
+</ResponseExample>

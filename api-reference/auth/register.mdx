@@ -1,0 +1,166 @@
+---
+title: Register
+description: Create a new user account.
+---
+
+<Note>
+This endpoint is rate-limited to **5 requests per hour** per IP address.
+</Note>
+
+`POST /api/auth/register`
+
+## Request body
+
+<ParamField body="username" type="string" required>
+  Unique username for the account. Must be 3–80 characters and may only contain letters, numbers, underscores (`_`), and hyphens (`-`).
+</ParamField>
+
+<ParamField body="email" type="string" required>
+  Email address for the account. Must be a valid email format, 3–120 characters, with no consecutive dots.
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  Account password. Must be 8–128 characters and contain at least one uppercase letter, one lowercase letter, and one number.
+</ParamField>
+
+<ParamField body="first_name" type="string">
+  User's first name.
+</ParamField>
+
+<ParamField body="last_name" type="string">
+  User's last name.
+</ParamField>
+
+## Response
+
+### 201 Created
+
+The account was created successfully. Returns the new user object.
+
+<ResponseField name="success" type="boolean" required>
+  Always `true` on success.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Confirmation message.
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  <Expandable title="properties">
+    <ResponseField name="id" type="integer">
+      Unique user ID.
+    </ResponseField>
+    <ResponseField name="username" type="string">
+      The registered username.
+    </ResponseField>
+    <ResponseField name="email" type="string">
+      The registered email address (stored in lowercase).
+    </ResponseField>
+    <ResponseField name="first_name" type="string">
+      First name, if provided.
+    </ResponseField>
+    <ResponseField name="last_name" type="string">
+      Last name, if provided.
+    </ResponseField>
+    <ResponseField name="full_name" type="string">
+      Combined first and last name, or the username if names were not provided.
+    </ResponseField>
+    <ResponseField name="is_active" type="boolean">
+      Account status. New accounts are active by default.
+    </ResponseField>
+    <ResponseField name="created_at" type="string">
+      ISO 8601 timestamp of account creation.
+    </ResponseField>
+    <ResponseField name="updated_at" type="string">
+      ISO 8601 timestamp of last update.
+    </ResponseField>
+    <ResponseField name="role" type="object">
+      <Expandable title="properties">
+        <ResponseField name="id" type="integer">
+          Role ID.
+        </ResponseField>
+        <ResponseField name="name" type="string">
+          Role name. New accounts receive the `user` role.
+        </ResponseField>
+        <ResponseField name="description" type="string">
+          Role description.
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Error responses
+
+| Status | Cause |
+|---|---|
+| `400` | Request body is missing or a required field (`username`, `email`, `password`) is absent |
+| `400` | Username, email, or password fails validation |
+| `409` | The username or email is already registered |
+
+<CodeGroup>
+
+```bash curl
+curl --request POST \
+  --url http://localhost:5000/api/auth/register \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "username": "johndoe",
+    "email": "john@example.com",
+    "password": "SecurePass123",
+    "first_name": "John",
+    "last_name": "Doe"
+  }'
+```
+
+```python python
+import requests
+
+response = requests.post(
+    "http://localhost:5000/api/auth/register",
+    json={
+        "username": "johndoe",
+        "email": "john@example.com",
+        "password": "SecurePass123",
+        "first_name": "John",
+        "last_name": "Doe",
+    },
+)
+print(response.json())
+```
+
+</CodeGroup>
+
+**201 response:**
+
+```json
+{
+  "success": true,
+  "message": "Usuario registrado con exito",
+  "data": {
+    "id": 1,
+    "username": "johndoe",
+    "email": "john@example.com",
+    "first_name": "John",
+    "last_name": "Doe",
+    "full_name": "John Doe",
+    "is_active": true,
+    "created_at": "2024-01-15T10:30:00",
+    "updated_at": "2024-01-15T10:30:00",
+    "role": {
+      "id": 1,
+      "name": "user",
+      "description": "Standard user role"
+    }
+  }
+}
+```
+
+**409 response:**
+
+```json
+{
+  "success": false,
+  "message": "El nombre de usuario ya existe"
+}
+```

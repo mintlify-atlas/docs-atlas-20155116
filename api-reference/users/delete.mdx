@@ -1,0 +1,87 @@
+---
+title: Delete a user
+description: Permanently delete a user account from the system.
+---
+
+Permanently deletes a user account and all associated data. This action cannot be undone.
+
+<Warning>
+  This endpoint requires **admin** privileges. Additionally, admin accounts cannot be deleted — attempting to do so returns `403 Forbidden`.
+</Warning>
+
+## Authentication
+
+Requires a valid Bearer token from an admin account in the `Authorization` header.
+
+## Path parameters
+
+<ParamField path="user_id" type="number" required>
+  The unique integer ID of the user to delete.
+</ParamField>
+
+## Constraints
+
+- You cannot delete a user whose `role` is `admin`. Demote them to `user` first using the [update user](/api-reference/users/update) endpoint if deletion is required.
+
+## Response fields
+
+<ResponseField name="success" type="boolean" required>
+  `true` when the user is deleted.
+</ResponseField>
+
+<ResponseField name="message" type="string" required>
+  Confirmation message.
+</ResponseField>
+
+## Errors
+
+| Status | Description |
+| ------ | ----------- |
+| `401`  | Missing or invalid Bearer token. |
+| `403`  | Authenticated user is not an admin, or the target user is an admin. |
+| `404`  | No user exists with the given `user_id`. |
+
+## Examples
+
+<CodeGroup>
+
+```bash cURL
+curl --request DELETE \
+  --url https://api.taskforge.example.com/api/users/2 \
+  --header 'Authorization: Bearer <admin-token>'
+```
+
+```python Python
+import requests
+
+response = requests.delete(
+    "https://api.taskforge.example.com/api/users/2",
+    headers={"Authorization": "Bearer <admin-token>"},
+)
+print(response.json())
+```
+
+</CodeGroup>
+
+### Response
+
+```json 200
+{
+  "success": true,
+  "message": "Usuario eliminado con exito"
+}
+```
+
+```json 403
+{
+  "success": false,
+  "error": "No se pueden eliminar usuarios administradores"
+}
+```
+
+```json 404
+{
+  "success": false,
+  "error": "Usuario no encontrado"
+}
+```

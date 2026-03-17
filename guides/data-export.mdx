@@ -1,0 +1,148 @@
+---
+title: Data export
+description: Export your tasks as CSV or JSON for backups, spreadsheet analysis, and reporting.
+---
+
+The export endpoint lets you download all your tasks in one request. You can filter the export before downloading so you only get the data you need.
+
+## Endpoint
+
+```
+GET /api/tasks/export
+```
+
+Requires a valid `Authorization: Bearer <token>` header. The endpoint returns a file download, not a paginated JSON response.
+
+## Query parameters
+
+<ParamField query="format" type="string" default="csv">
+  Output format. Accepted values: `csv`, `json`.
+</ParamField>
+
+<ParamField query="status" type="string">
+  Filter by task status. Accepted values: `pending`, `in_progress`, `completed`, `cancelled`.
+</ParamField>
+
+<ParamField query="priority" type="string">
+  Filter by task priority. Accepted values: `low`, `medium`, `high`, `urgent`.
+</ParamField>
+
+<ParamField query="tag_id" type="integer">
+  Filter by the numeric ID of a tag.
+</ParamField>
+
+<ParamField query="overdue" type="boolean">
+  When `true`, only tasks past their due date are included.
+</ParamField>
+
+Filters are applied in `app/routes/tasks.py`:
+
+```python
+# Get filters
+allowed_filters = ['status', 'priority', 'tag_id', 'overdue']
+filters = get_filter_params(allowed_filters)
+```
+
+## CSV format
+
+The CSV file is named `tasks.csv`. Each row represents one task. Columns are produced by `prepare_tasks_for_export` in `app/utils/export.py`:
+
+| Column | Description |
+|---|---|
+| `id` | Numeric task ID |
+| `title` | Task title |
+| `description` | Task description |
+| `status` | `pending`, `in_progress`, `completed`, or `cancelled` |
+| `priority` | `low`, `medium`, `high`, or `urgent` |
+| `due_date` | ISO 8601 datetime or empty |
+| `completed_at` | ISO 8601 datetime or empty |
+| `is_overdue` | `True` / `False` |
+| `is_completed` | `True` / `False` |
+| `created_at` | ISO 8601 datetime |
+| `updated_at` | ISO 8601 datetime |
+| `user_id` | Numeric owner ID |
+| `user_username` | Owner username |
+| `user_email` | Owner email |
+| `tags` | Comma-separated tag names (e.g. `Work, Urgent`) |
+
+List and dict values (such as the raw tags array) are serialised as JSON strings before writing so the CSV remains valid.
+
+## JSON format
+
+The JSON file is named `tasks.json`. It contains a pretty-printed array of objects using the same fields as the CSV columns above:
+
+```json
+[
+  {
+    "id": 1,
+    "title": "Complete project documentation",
+    "description": "Write comprehensive API documentation",
+    "status": "in_progress",
+    "priority": "high",
+    "due_date": "2024-12-31T23:59:59",
+    "completed_at": null,
+    "is_overdue": false,
+    "is_completed": false,
+    "created_at": "2024-11-01T10:00:00",
+    "updated_at": "2024-11-15T14:30:00",
+    "user_id": 3,
+    "user_username": "johndoe",
+    "user_email": "john@example.com",
+    "tags": "Work, Urgent"
+  }
+]
+```
+
+The JSON response uses `indent=2` formatting and serialises non-serialisable types (such as `datetime`) via Python's `str()` converter.
+
+## Examples
+
+<CodeGroup>
+
+```bash Export all tasks as CSV
+curl -H "Authorization: Bearer <token>" \
+     "http://localhost:5000/api/tasks/export" \
+     -o tasks.csv
+```
+
+```bash Export all tasks as JSON
+curl -H "Authorization: Bearer <token>" \
+     "http://localhost:5000/api/tasks/export?format=json" \
+     -o tasks.json
+```
+
+```bash Export only completed tasks
+curl -H "Authorization: Bearer <token>" \
+     "http://localhost:5000/api/tasks/export?format=csv&status=completed" \
+     -o completed_tasks.csv
+```
+
+```bash Export high-priority overdue tasks
+curl -H "Authorization: Bearer <token>" \
+     "http://localhost:5000/api/tasks/export?priority=high&overdue=true" \
+     -o overdue_tasks.csv
+```
+
+```bash Export tasks with a specific tag
+curl -H "Authorization: Bearer <token>" \
+     "http://localhost:5000/api/tasks/export?tag_id=2&format=json" \
+     -o work_tasks.json
+```
+
+</CodeGroup>
+
+## Use cases
+
+<CardGroup cols={3}>
+  <Card title="Backup" icon="database">
+    Download a full JSON snapshot of all your tasks before migrating to a new environment or performing destructive operations.
+  </Card>
+  <Card title="Spreadsheet analysis" icon="table">
+    Export to CSV and open directly in Excel or Google Sheets to build pivot tables or track completion rates over time.
+  </Card>
+  <Card title="Reporting" icon="chart-bar">
+    Filter by date range or priority and feed the CSV or JSON output into a reporting pipeline or BI tool.
+  </Card>
+</CardGroup>
+
+<Note>The export endpoint fetches up to 10,000 tasks in a single request. If you manage more tasks than this, apply filters to narrow the export to the subset you need.</Note>

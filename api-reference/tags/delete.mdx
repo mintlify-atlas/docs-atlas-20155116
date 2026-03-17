@@ -1,0 +1,83 @@
+---
+title: Delete a tag
+description: Permanently delete a tag from the system.
+---
+
+Permanently deletes a tag. This action cannot be undone.
+
+<Warning>
+  This endpoint requires **admin** privileges. Requests from non-admin users return `403 Forbidden`.
+</Warning>
+
+## Authentication
+
+Requires a valid Bearer token from an admin account in the `Authorization` header.
+
+## Path parameters
+
+<ParamField path="tag_id" type="number" required>
+  The unique integer ID of the tag to delete.
+</ParamField>
+
+## Response fields
+
+<ResponseField name="success" type="boolean" required>
+  `true` when the tag is deleted.
+</ResponseField>
+
+<ResponseField name="message" type="string" required>
+  Confirmation message.
+</ResponseField>
+
+## Errors
+
+| Status | Description |
+| ------ | ----------- |
+| `401`  | Missing or invalid Bearer token. |
+| `403`  | Authenticated user is not an admin. |
+| `404`  | No tag exists with the given `tag_id`. |
+
+## Examples
+
+<CodeGroup>
+
+```bash cURL
+curl --request DELETE \
+  --url https://api.taskforge.example.com/api/tags/5 \
+  --header 'Authorization: Bearer <admin-token>'
+```
+
+```python Python
+import requests
+
+response = requests.delete(
+    "https://api.taskforge.example.com/api/tags/5",
+    headers={"Authorization": "Bearer <admin-token>"},
+)
+print(response.json())
+```
+
+</CodeGroup>
+
+### Response
+
+```json 200
+{
+  "success": true,
+  "message": "Etiqueta eliminada con exito"
+}
+```
+
+```json 403
+{
+  "success": false,
+  "error": "Prohibido"
+}
+```
+
+```json 404
+{
+  "success": false,
+  "error": "Etiqueta no encontrada"
+}
+```

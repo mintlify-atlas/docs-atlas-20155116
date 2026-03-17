@@ -1,0 +1,103 @@
+---
+title: Complete a task
+description: Mark a task as completed and record the completion timestamp.
+---
+
+Marks a task as `completed` and sets its `completed_at` field to the current UTC time. This is a convenience endpoint — the same result can be achieved by sending `status: "completed"` to [Update a task](/api-reference/tasks/update).
+
+You can complete a task you own. Admins can complete any task.
+
+<Info>
+  **Authentication required.** Include a valid Bearer token in the `Authorization` header.
+</Info>
+
+## Path parameters
+
+<ParamField path="task_id" type="integer" required>
+  The ID of the task to mark as completed.
+</ParamField>
+
+## Response
+
+Returns the updated task object with HTTP status `200`. The `status` field will be `completed` and `completed_at` will be set to the UTC timestamp of the request.
+
+<ResponseField name="success" type="boolean" required>
+  `true` on a successful response.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Confirmation message.
+</ResponseField>
+
+<ResponseField name="data" type="object" required>
+  The updated task. See [Get a task](/api-reference/tasks/get) for the full field reference.
+</ResponseField>
+
+## Errors
+
+| Status | Description |
+|--------|-------------|
+| `403`  | You do not own this task and are not an admin. |
+| `404`  | No task with the given `task_id` exists. |
+
+<RequestExample>
+
+```bash cURL
+curl --request POST \
+  --url 'https://api.example.com/api/tasks/42/complete' \
+  --header 'Authorization: Bearer <token>'
+```
+
+```python Python
+import requests
+
+response = requests.post(
+    "https://api.example.com/api/tasks/42/complete",
+    headers={"Authorization": "Bearer <token>"},
+)
+print(response.json())
+```
+
+</RequestExample>
+
+<ResponseExample>
+
+```json 200
+{
+  "success": true,
+  "message": "Tarea marcada como completada",
+  "data": {
+    "id": 42,
+    "title": "Complete project documentation",
+    "description": "Write comprehensive API documentation",
+    "status": "completed",
+    "priority": "high",
+    "due_date": "2024-12-31T23:59:59",
+    "completed_at": "2024-11-20T16:45:00",
+    "is_overdue": false,
+    "is_completed": true,
+    "created_at": "2024-11-01T10:00:00",
+    "updated_at": "2024-11-20T16:45:00",
+    "user_id": 7,
+    "tags": [
+      {"id": 1, "name": "docs"}
+    ]
+  }
+}
+```
+
+```json 403
+{
+  "success": false,
+  "message": "No tienes permiso para actualizar esta tarea"
+}
+```
+
+```json 404
+{
+  "success": false,
+  "message": "Tarea no encontrada"
+}
+```
+
+</ResponseExample>

@@ -1,0 +1,142 @@
+---
+title: Rate limiting
+description: How TaskForge API enforces rate limits, per-route overrides, the 429 response format, and storage backend options.
+---
+
+TaskForge API uses [Flask-Limiter](https://flask-limiter.readthedocs.io/) to protect all endpoints from abuse. Limits are applied per remote IP address.
+
+## Default limits
+
+The global default is set via `RATELIMIT_DEFAULT` in your `.env` file and applied to every route that does not declare its own limit:
+
+```bash
+RATELIMIT_DEFAULT=200 per day;50 per hour
+```
+
+Flask-Limiter evaluates all limits that apply to a request. If a caller exhausts either the hourly or the daily bucket, subsequent requests return `429`.
+
+In `app/config.py` the value is loaded as:
+
+```python
+RATELIMIT_DEFAULT = os.getenv('RATELIMIT_DEFAULT', '200 per day;50 per hour')
+```
+
+Rate limit response headers are always included (`RATELIMIT_HEADERS_ENABLED = True`), so clients can track their remaining quota.
+
+## Per-route limits
+
+Several routes declare stricter limits using the `@limiter.limit` decorator on top of the default:
+
+| Route | Method | Limit |
+|---|---|---|
+| `POST /api/auth/register` | Registration | 5 per hour |
+| `POST /api/auth/login` | Login | 10 per hour |
+| `POST /api/auth/change-password` | Password change | 3 per hour |
+| `POST /api/tasks` | Create task | 50 per hour |
+| `POST /api/tags` | Create tag | 20 per hour |
+
+These limits come directly from the route decorators in the source:
+
+<CodeGroup>
+
+```python auth.py
+@auth_bp.route('/register', methods=['POST'])
+@limiter.limit("5 per hour")
+def register():
+    ...
+
+@auth_bp.route('/login', methods=['POST'])
+@limiter.limit("10 per hour")
+def login():
+    ...
+
+@auth_bp.route('/change-password', methods=['POST'])
+@current_user_required
+@limiter.limit("3 per hour")
+def change_password(current_user):
+    ...
+```
+
+```python tasks.py
+@tasks_bp.route('', methods=['POST'])
+@current_user_required
+@limiter.limit("50 per hour")
+def create_task(current_user):
+    ...
+```
+
+```python tags.py
+@tags_bp.route('', methods=['POST'])
+@current_user_required
+@limiter.limit("20 per hour")
+def create_tag(current_user):
+    ...
+```
+
+</CodeGroup>
+
+## 429 response format
+
+When a caller exceeds any limit, the API returns HTTP `429` with a JSON body:
+
+```json
+{
+  "success": false,
+  "error": "Limite de Velocidad Excedido",
+  "message": "Demasiadas peticiones. Por favor intentalo de nuevo mas tarde."
+}
+```
+
+This handler is registered in `app/__init__.py`:
+
+```python
+@app.errorhandler(429)
+def ratelimit_handler(error):
+    return jsonify({
+        'success': False,
+        'error': 'Limite de Velocidad Excedido',
+        'message': 'Demasiadas peticiones. Por favor intentalo de nuevo mas tarde.'
+    }), 429
+```
+
+## Configuring limits via environment variables
+
+You can override all three rate-limiting variables without touching code:
+
+```bash
+# Enable or disable rate limiting
+RATELIMIT_ENABLED=true
+
+# Default limits for routes without an explicit decorator
+RATELIMIT_DEFAULT=200 per day;50 per hour
+
+# Storage backend (see below)
+RATELIMIT_STORAGE_URL=memory://
+```
+
+Set `RATELIMIT_ENABLED=false` to disable all limits in development or CI. The `TestingConfig` class does this automatically:
+
+```python
+class TestingConfig(Config):
+    RATELIMIT_ENABLED = False
+```
+
+## Rate limit storage backends
+
+The `RATELIMIT_STORAGE_URL` variable controls where limit counters are stored.
+
+| Backend | URL format | Use case |
+|---|---|---|
+| In-memory (default) | `memory://` | Single-process development |
+| Redis | `redis://localhost:6379/0` | Production, multi-worker deployments |
+| Redis Sentinel | `redis+sentinel://host:port/mymaster/0` | High-availability Redis |
+| Memcached | `memcached://localhost:11211` | Alternative distributed store |
+
+<Warning>
+The in-memory backend does not share state between Gunicorn workers. In production (where Gunicorn runs 4 workers), use Redis so that limits are enforced correctly across all processes.
+</Warning>
+
+```bash
+# Production example
+RATELIMIT_STORAGE_URL=redis://redis:6379/0
+```

@@ -1,0 +1,195 @@
+---
+title: List tasks
+description: Retrieve a paginated, filtered, and sorted list of tasks for the authenticated user.
+---
+
+Returns a paginated list of tasks. Regular users see only their own tasks. Admins see all tasks across all users.
+
+<Info>
+  **Authentication required.** Include a valid Bearer token in the `Authorization` header.
+</Info>
+
+## Query parameters
+
+### Pagination
+
+<ParamField query="page" type="integer" default="1">
+  Page number to retrieve.
+</ParamField>
+
+<ParamField query="per_page" type="integer" default="10">
+  Number of tasks per page. Capped at 100.
+</ParamField>
+
+### Sorting
+
+<ParamField query="sort_by" type="string" default="created_at">
+  Field to sort results by. Allowed values: `id`, `title`, `status`, `priority`, `due_date`, `created_at`, `updated_at`.
+</ParamField>
+
+<ParamField query="sort_order" type="string" default="desc">
+  Sort direction. Allowed values: `asc`, `desc`.
+</ParamField>
+
+### Filters
+
+<ParamField query="status" type="string">
+  Filter by task status. Allowed values: `pending`, `in_progress`, `completed`, `cancelled`.
+</ParamField>
+
+<ParamField query="priority" type="string">
+  Filter by task priority. Allowed values: `low`, `medium`, `high`, `urgent`.
+</ParamField>
+
+<ParamField query="tag_id" type="integer">
+  Filter tasks that have the tag with this ID.
+</ParamField>
+
+<ParamField query="tag_name" type="string">
+  Filter tasks by tag name (case-insensitive, partial match).
+</ParamField>
+
+<ParamField query="search" type="string">
+  Search term matched against task title and description (case-insensitive).
+</ParamField>
+
+<ParamField query="overdue" type="boolean">
+  When `true`, returns only tasks whose `due_date` is in the past and status is not `completed`.
+</ParamField>
+
+<ParamField query="due_date_from" type="string">
+  ISO 8601 datetime string. Returns tasks with `due_date` on or after this value. Example: `2024-01-01T00:00:00`.
+</ParamField>
+
+<ParamField query="due_date_to" type="string">
+  ISO 8601 datetime string. Returns tasks with `due_date` on or before this value. Example: `2024-12-31T23:59:59`.
+</ParamField>
+
+## Response
+
+<ResponseField name="success" type="boolean" required>
+  `true` on a successful response.
+</ResponseField>
+
+<ResponseField name="data" type="object" required>
+  <Expandable title="properties" defaultOpen>
+    <ResponseField name="tasks" type="object[]" required>
+      Array of task objects. See [Get a task](/api-reference/tasks/get) for the full task object shape.
+    </ResponseField>
+    <ResponseField name="pagination" type="object" required>
+      <Expandable title="properties">
+        <ResponseField name="page" type="integer">
+          Current page number.
+        </ResponseField>
+        <ResponseField name="per_page" type="integer">
+          Number of items per page.
+        </ResponseField>
+        <ResponseField name="total" type="integer">
+          Total number of tasks matching the query.
+        </ResponseField>
+        <ResponseField name="total_pages" type="integer">
+          Total number of pages.
+        </ResponseField>
+        <ResponseField name="has_next" type="boolean">
+          Whether a next page exists.
+        </ResponseField>
+        <ResponseField name="has_prev" type="boolean">
+          Whether a previous page exists.
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<RequestExample>
+
+```bash Basic list
+curl --request GET \
+  --url 'https://api.example.com/api/tasks' \
+  --header 'Authorization: Bearer <token>'
+```
+
+```bash Filter by status and priority
+curl --request GET \
+  --url 'https://api.example.com/api/tasks?status=in_progress&priority=high&sort_by=due_date&sort_order=asc' \
+  --header 'Authorization: Bearer <token>'
+```
+
+```bash Search with pagination
+curl --request GET \
+  --url 'https://api.example.com/api/tasks?search=documentation&page=2&per_page=5' \
+  --header 'Authorization: Bearer <token>'
+```
+
+```bash Filter overdue tasks
+curl --request GET \
+  --url 'https://api.example.com/api/tasks?overdue=true' \
+  --header 'Authorization: Bearer <token>'
+```
+
+```python Python
+import requests
+
+response = requests.get(
+    "https://api.example.com/api/tasks",
+    headers={"Authorization": "Bearer <token>"},
+    params={
+        "status": "in_progress",
+        "priority": "high",
+        "sort_by": "due_date",
+        "sort_order": "asc",
+        "page": 1,
+        "per_page": 10,
+    },
+)
+print(response.json())
+```
+
+</RequestExample>
+
+<ResponseExample>
+
+```json 200
+{
+  "success": true,
+  "data": {
+    "tasks": [
+      {
+        "id": 42,
+        "title": "Complete project documentation",
+        "description": "Write comprehensive API documentation",
+        "status": "in_progress",
+        "priority": "high",
+        "due_date": "2024-12-31T23:59:59",
+        "completed_at": null,
+        "is_overdue": false,
+        "is_completed": false,
+        "created_at": "2024-11-01T10:00:00",
+        "updated_at": "2024-11-15T14:30:00",
+        "user_id": 7,
+        "tags": [
+          {"id": 1, "name": "docs"},
+          {"id": 3, "name": "backend"}
+        ]
+      }
+    ],
+    "pagination": {
+      "page": 1,
+      "per_page": 10,
+      "total": 1,
+      "total_pages": 1,
+      "has_next": false,
+      "has_prev": false
+    }
+  }
+}
+```
+
+```json 401
+{
+  "success": false,
+  "message": "Unauthorized"
+}
+```
+
+</ResponseExample>

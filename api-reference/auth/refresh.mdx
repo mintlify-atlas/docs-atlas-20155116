@@ -1,0 +1,94 @@
+---
+title: Refresh token
+description: Exchange a valid refresh token for a new access token.
+---
+
+`POST /api/auth/refresh`
+
+<Warning>
+This endpoint requires the **refresh token** in the `Authorization` header — not the access token. Sending an access token here will return a 401 error.
+</Warning>
+
+## Authentication
+
+Pass your refresh token as a Bearer token:
+
+```http
+Authorization: Bearer <your_refresh_token>
+```
+
+The refresh token is validated against the database. A token that has been revoked (via logout or password change) or has passed its expiry time will be rejected.
+
+## Response
+
+### 200 OK
+
+Returns a new access token. The refresh token itself is not rotated.
+
+<ResponseField name="success" type="boolean" required>
+  Always `true` on success.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Confirmation message.
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  <Expandable title="properties">
+    <ResponseField name="access_token" type="string">
+      A new short-lived JWT. Use this in subsequent `Authorization: Bearer` headers.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Error responses
+
+| Status | Cause |
+|---|---|
+| `401` | `Authorization` header is missing or malformed |
+| `401` | Refresh token is not found in the database |
+| `401` | Refresh token has expired or been revoked |
+| `401` | The user associated with the token is inactive |
+
+<CodeGroup>
+
+```bash curl
+curl --request POST \
+  --url http://localhost:5000/api/auth/refresh \
+  --header 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...'
+```
+
+```python python
+import requests
+
+refresh_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+
+response = requests.post(
+    "http://localhost:5000/api/auth/refresh",
+    headers={"Authorization": f"Bearer {refresh_token}"},
+)
+new_access_token = response.json()["data"]["access_token"]
+```
+
+</CodeGroup>
+
+**200 response:**
+
+```json
+{
+  "success": true,
+  "message": "Token refrescado con exito",
+  "data": {
+    "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+  }
+}
+```
+
+**401 response (expired or revoked):**
+
+```json
+{
+  "success": false,
+  "message": "Token de refresco expirado o revocado"
+}
+```

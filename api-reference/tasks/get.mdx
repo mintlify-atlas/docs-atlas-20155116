@@ -1,0 +1,143 @@
+---
+title: Get a task
+description: Retrieve a single task by its ID.
+---
+
+Returns the full details of a task. Users can only retrieve their own tasks. Admins can retrieve any task.
+
+<Info>
+  **Authentication required.** Include a valid Bearer token in the `Authorization` header.
+</Info>
+
+## Path parameters
+
+<ParamField path="task_id" type="integer" required>
+  The ID of the task to retrieve.
+</ParamField>
+
+## Response
+
+<ResponseField name="success" type="boolean" required>
+  `true` on a successful response.
+</ResponseField>
+
+<ResponseField name="data" type="object" required>
+  <Expandable title="properties" defaultOpen>
+    <ResponseField name="id" type="integer">
+      Unique task identifier.
+    </ResponseField>
+    <ResponseField name="title" type="string">
+      Task title. Maximum 200 characters.
+    </ResponseField>
+    <ResponseField name="description" type="string">
+      Optional task description. Maximum 5000 characters. `null` if not set.
+    </ResponseField>
+    <ResponseField name="status" type="string">
+      Current task status. One of: `pending`, `in_progress`, `completed`, `cancelled`.
+    </ResponseField>
+    <ResponseField name="priority" type="string">
+      Task priority. One of: `low`, `medium`, `high`, `urgent`.
+    </ResponseField>
+    <ResponseField name="due_date" type="string">
+      ISO 8601 datetime string of the due date. `null` if not set.
+    </ResponseField>
+    <ResponseField name="completed_at" type="string">
+      ISO 8601 datetime string of when the task was completed. `null` if not yet completed.
+    </ResponseField>
+    <ResponseField name="is_overdue" type="boolean">
+      `true` if `due_date` is in the past and status is not `completed`.
+    </ResponseField>
+    <ResponseField name="is_completed" type="boolean">
+      `true` if `status` is `completed`.
+    </ResponseField>
+    <ResponseField name="created_at" type="string">
+      ISO 8601 datetime string of when the task was created.
+    </ResponseField>
+    <ResponseField name="updated_at" type="string">
+      ISO 8601 datetime string of the last update.
+    </ResponseField>
+    <ResponseField name="user_id" type="integer">
+      ID of the user who owns the task.
+    </ResponseField>
+    <ResponseField name="tags" type="object[]">
+      Array of tag objects associated with the task.
+      <Expandable title="tag properties">
+        <ResponseField name="id" type="integer">
+          Tag ID.
+        </ResponseField>
+        <ResponseField name="name" type="string">
+          Tag name.
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Errors
+
+| Status | Description |
+|--------|-------------|
+| `403`  | You do not own this task and are not an admin. |
+| `404`  | No task with the given `task_id` exists. |
+
+<RequestExample>
+
+```bash cURL
+curl --request GET \
+  --url 'https://api.example.com/api/tasks/42' \
+  --header 'Authorization: Bearer <token>'
+```
+
+```python Python
+import requests
+
+response = requests.get(
+    "https://api.example.com/api/tasks/42",
+    headers={"Authorization": "Bearer <token>"},
+)
+print(response.json())
+```
+
+</RequestExample>
+
+<ResponseExample>
+
+```json 200
+{
+  "success": true,
+  "data": {
+    "id": 42,
+    "title": "Complete project documentation",
+    "description": "Write comprehensive API documentation",
+    "status": "in_progress",
+    "priority": "high",
+    "due_date": "2024-12-31T23:59:59",
+    "completed_at": null,
+    "is_overdue": false,
+    "is_completed": false,
+    "created_at": "2024-11-01T10:00:00",
+    "updated_at": "2024-11-15T14:30:00",
+    "user_id": 7,
+    "tags": [
+      {"id": 1, "name": "docs"},
+      {"id": 3, "name": "backend"}
+    ]
+  }
+}
+```
+
+```json 403
+{
+  "success": false,
+  "message": "No tienes permiso para ver esta tarea"
+}
+```
+
+```json 404
+{
+  "success": false,
+  "message": "Tarea no encontrada"
+}
+```
+
+</ResponseExample>

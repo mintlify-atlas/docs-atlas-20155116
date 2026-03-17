@@ -1,0 +1,210 @@
+---
+title: Update a user
+description: Update profile information for a user.
+---
+
+Updates profile fields for a user. Supports both full (`PUT`) and partial (`PATCH`) updates.
+
+Access rules:
+- Regular users can update only their own profile, and may only change `first_name` and `last_name`.
+- Admins can update any user's profile and may also change `is_active` and `role`.
+
+<Warning>
+  If a non-admin user includes `role` or `is_active` in the request body, those fields are silently stripped before the update is applied. They do not cause a validation error.
+</Warning>
+
+## Authentication
+
+Requires a valid Bearer token in the `Authorization` header.
+
+## Path parameters
+
+<ParamField path="user_id" type="number" required>
+  The unique integer ID of the user to update.
+</ParamField>
+
+## Request body
+
+All fields are optional. At least one field must be provided.
+
+<ParamField body="first_name" type="string">
+  User's first name.
+</ParamField>
+
+<ParamField body="last_name" type="string">
+  User's last name.
+</ParamField>
+
+<ParamField body="is_active" type="boolean">
+  Whether the user can authenticate. **Admin only.** Ignored for non-admin callers.
+</ParamField>
+
+<ParamField body="role" type="string">
+  The user's role. Accepted values: `admin`, `user`. **Admin only.** Ignored for non-admin callers.
+</ParamField>
+
+## Response fields
+
+<ResponseField name="success" type="boolean" required>
+  `true` when the update succeeds.
+</ResponseField>
+
+<ResponseField name="message" type="string" required>
+  Confirmation message.
+</ResponseField>
+
+<ResponseField name="data" type="object" required>
+  The updated user object.
+  <Expandable title="properties" defaultOpen={true}>
+    <ResponseField name="id" type="number" required>
+      Unique identifier for the user.
+    </ResponseField>
+    <ResponseField name="username" type="string" required>
+      The user's unique username.
+    </ResponseField>
+    <ResponseField name="email" type="string" required>
+      The user's email address.
+    </ResponseField>
+    <ResponseField name="first_name" type="string">
+      User's first name. `null` if not set.
+    </ResponseField>
+    <ResponseField name="last_name" type="string">
+      User's last name. `null` if not set.
+    </ResponseField>
+    <ResponseField name="full_name" type="string" required>
+      Computed display name.
+    </ResponseField>
+    <ResponseField name="is_active" type="boolean" required>
+      Whether the user can authenticate.
+    </ResponseField>
+    <ResponseField name="role" type="object" required>
+      The user's assigned role.
+      <Expandable title="role properties">
+        <ResponseField name="id" type="number" required>
+          Role ID.
+        </ResponseField>
+        <ResponseField name="name" type="string" required>
+          Role name: `admin` or `user`.
+        </ResponseField>
+        <ResponseField name="description" type="string">
+          Role description.
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+    <ResponseField name="created_at" type="string" required>
+      ISO 8601 timestamp of account creation.
+    </ResponseField>
+    <ResponseField name="updated_at" type="string" required>
+      ISO 8601 timestamp of the most recent update.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Errors
+
+| Status | Description |
+| ------ | ----------- |
+| `400`  | Validation failed — e.g. invalid `role` value. |
+| `401`  | Missing or invalid Bearer token. |
+| `403`  | Attempting to update another user's profile without admin privileges. |
+| `404`  | No user exists with the given `user_id`. |
+
+## Examples
+
+<CodeGroup>
+
+```bash cURL
+curl --request PATCH \
+  --url https://api.taskforge.example.com/api/users/2 \
+  --header 'Authorization: Bearer <token>' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "first_name": "Jonathan",
+    "last_name": "Doe"
+  }'
+```
+
+```python Python
+import requests
+
+response = requests.patch(
+    "https://api.taskforge.example.com/api/users/2",
+    headers={
+        "Authorization": "Bearer <token>",
+        "Content-Type": "application/json",
+    },
+    json={
+        "first_name": "Jonathan",
+        "last_name": "Doe",
+    },
+)
+print(response.json())
+```
+
+</CodeGroup>
+
+### Admin example — change role and deactivate
+
+<CodeGroup>
+
+```bash cURL
+curl --request PATCH \
+  --url https://api.taskforge.example.com/api/users/2 \
+  --header 'Authorization: Bearer <admin-token>' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "role": "admin",
+    "is_active": false
+  }'
+```
+
+```python Python
+import requests
+
+response = requests.patch(
+    "https://api.taskforge.example.com/api/users/2",
+    headers={
+        "Authorization": "Bearer <admin-token>",
+        "Content-Type": "application/json",
+    },
+    json={
+        "role": "admin",
+        "is_active": False,
+    },
+)
+print(response.json())
+```
+
+</CodeGroup>
+
+### Response
+
+```json 200
+{
+  "success": true,
+  "message": "Usuario actualizado con exito",
+  "data": {
+    "id": 2,
+    "username": "jdoe",
+    "email": "jdoe@example.com",
+    "first_name": "Jonathan",
+    "last_name": "Doe",
+    "full_name": "Jonathan Doe",
+    "is_active": true,
+    "role": {
+      "id": 2,
+      "name": "user",
+      "description": "Standard user"
+    },
+    "created_at": "2024-02-01T08:00:00",
+    "updated_at": "2024-03-15T16:45:00"
+  }
+}
+```
+
+```json 403
+{
+  "success": false,
+  "error": "Prohibido"
+}
+```

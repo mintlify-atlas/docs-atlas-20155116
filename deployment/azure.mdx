@@ -1,0 +1,256 @@
+---
+title: Azure App Service
+description: Deploy TaskForge API to Azure App Service with Python 3.11 on Linux.
+---
+
+## Prerequisites
+
+<CardGroup cols={3}>
+  <Card title="Azure account" icon="cloud">
+    An active Azure subscription with permission to create App Service and SQL Database resources.
+  </Card>
+  <Card title="Azure CLI" icon="terminal">
+    Install the [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) and run `az login` before using any `az` commands below.
+  </Card>
+  <Card title="GitHub repository" icon="github">
+    The TaskForge API source code in a GitHub repository. The CI/CD pipeline pushes to Azure on every commit to `main` or `master`.
+  </Card>
+</CardGroup>
+
+## Azure App Service setup
+
+<Steps>
+  <Step title="Create the App Service">
+    In the Azure Portal, create a new Web App with these settings:
+
+    | Setting | Value |
+    |---|---|
+    | Runtime stack | Python 3.11 |
+    | Operating system | Linux |
+    | Region | Your preferred region |
+    | App name | `task-forge` (or your own name) |
+
+    Or use the CLI:
+
+    ```bash
+    az webapp create \
+      --name task-forge \
+      --resource-group <your-resource-group> \
+      --runtime "PYTHON:3.11" \
+      --plan <your-app-service-plan>
+    ```
+  </Step>
+
+  <Step title="Set the startup command">
+    Go to **Configuration** → **General settings** and set the startup command to:
+
+    ```bash
+    bash startup.sh
+    ```
+
+    Save the change. Azure will run this script each time the container starts.
+  </Step>
+
+  <Step title="Configure environment variables">
+    Go to **Configuration** → **Application settings** and add each variable below using **New application setting**.
+
+    #### Required variables
+
+    | Name | Description |
+    |---|---|
+    | `FLASK_ENV` | Set to `production` |
+    | `SECRET_KEY` | Flask secret key — generate with `python -c "import secrets; print(secrets.token_hex(32))"` |
+    | `JWT_SECRET_KEY` | JWT signing key — generate the same way as `SECRET_KEY` |
+    | `SCM_DO_BUILD_DURING_DEPLOYMENT` | Set to `true` so Azure installs dependencies automatically |
+
+    #### Azure SQL Database variables
+
+    | Name | Example value |
+    |---|---|
+    | `AZURE_SQL_SERVER` | `taskforge-server.database.windows.net` |
+    | `AZURE_SQL_DATABASE` | `taskforge_db` |
+    | `AZURE_SQL_USER` | `sqladmin` |
+    | `AZURE_SQL_PASSWORD` | Your secure password |
+    | `AZURE_SQL_PORT` | `1433` |
+
+    #### Optional variables
+
+    | Name | Default | Description |
+    |---|---|---|
+    | `JWT_ACCESS_TOKEN_EXPIRES` | `3600` | Access token lifetime in seconds |
+    | `RATELIMIT_ENABLED` | `true` | Enable rate limiting |
+    | `CORS_ORIGINS` | *(localhost)* | Comma-separated list of allowed origins |
+    | `LOG_LEVEL` | `INFO` | Logging verbosity |
+
+    <Warning>
+      Never use the placeholder values from `.env.example` in production. Always generate fresh secrets.
+    </Warning>
+
+    To generate a secure key:
+
+    ```bash
+    python -c "import secrets; print(secrets.token_hex(32))"
+    ```
+  </Step>
+
+  <Step title="Restart the app">
+    Go to **Overview** and click **Restart**. Wait 1–2 minutes for the container to come up with the new settings.
+  </Step>
+</Steps>
+
+## The startup.sh script
+
+Azure runs `startup.sh` on every container start. It does three things:
+
+1. Adds the app root to `PYTHONPATH`
+2. Runs a one-liner database initialisation (idempotent — safe to run repeatedly)
+3. Starts Gunicorn with 4 workers
+
+```bash
+#!/bin/bash
+
+# Startup script for Azure App Service
+# This script initializes the database and starts the Flask application with Gunicorn
+
+echo "Starting TaskForge API..."
+
+# Set Python path
+export PYTHONPATH=/home/site/wwwroot:$PYTHONPATH
+
+# Create logs directory if it doesn't exist
+mkdir -p /home/site/wwwroot/logs
+
+# Initialize database (run migrations if needed)
+echo "Initializing database..."
+python -c "from app import create_app, db; app = create_app('production'); app.app_context().push(); db.create_all()" || echo "Database initialization failed or already initialized"
+
+# Start Gunicorn with production settings
+echo "Starting Gunicorn..."
+gunicorn --bind=0.0.0.0:8000 \
+         --workers=4 \
+         --timeout=120 \
+         --access-logfile /home/site/wwwroot/logs/access.log \
+         --error-logfile /home/site/wwwroot/logs/error.log \
+         --log-level info \
+         "run:app"
+```
+
+If you prefer not to use the script, you can enter the equivalent Gunicorn command directly as the startup command:
+
+```bash
+gunicorn --bind=0.0.0.0:8000 --workers=4 --timeout=120 run:app
+```
+
+## Production URL structure
+
+After a successful deployment, the API is reachable at:
+
+```
+https://<app-name>.azurewebsites.net
+https://<app-name>.azurewebsites.net/api/docs     # Swagger UI
+https://<app-name>.azurewebsites.net/api/health   # Health check
+```
+
+For example, the reference deployment uses:
+
+```
+https://task-forge-gbd6h8gtg8hchve9.chilecentral-01.azurewebsites.net/api/docs
+```
+
+## GitHub secrets for deployment
+
+The deployment workflow authenticates to Azure using OIDC (no stored passwords). You need to add three secrets to your GitHub repository under **Settings** → **Secrets and variables** → **Actions**:
+
+| Secret name | Description |
+|---|---|
+| `AZUREAPPSERVICE_CLIENTID_8B5154DB47204797813A0BF3D3CD7549` | Client ID of the Azure service principal |
+| `AZUREAPPSERVICE_TENANTID_FEEBA7ED63A54A02BDBA41DEA65AE6E9` | Azure Active Directory tenant ID |
+| `AZUREAPPSERVICE_SUBSCRIPTIONID_D9E52638C64344638E91E510FA0B5116` | Azure subscription ID |
+
+<Note>
+  These secret names are generated by the Azure App Service deployment centre and include a unique suffix. If you set up a new App Service, the suffix in the secret names will differ. Update the workflow file and secrets to match.
+</Note>
+
+The workflow uses `azure/login@v2` with the `id-token: write` permission to exchange a GitHub-issued OIDC token for an Azure access token — no client secret is stored anywhere.
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Application Error on first visit">
+    **Cause:** Missing startup command or missing environment variables.
+
+    **Fix:**
+    1. Confirm the startup command is set to `bash startup.sh` in **Configuration** → **General settings**.
+    2. Check that `FLASK_ENV`, `SECRET_KEY`, and `JWT_SECRET_KEY` are all set in **Application settings**.
+    3. Restart the app.
+  </Accordion>
+
+  <Accordion title="Cannot connect to database">
+    **Cause:** Incorrect Azure SQL credentials or a missing firewall rule.
+
+    **Fix:**
+    1. Verify all five `AZURE_SQL_*` variables are correct.
+    2. In your SQL Server resource, go to **Networking** → **Firewall rules** and enable **Allow Azure services and resources to access this server**.
+  </Accordion>
+
+  <Accordion title="Token validation failed">
+    **Cause:** `SECRET_KEY` or `JWT_SECRET_KEY` is not set, or is using the default placeholder value.
+
+    **Fix:** Generate fresh secrets and set them in **Application settings**.
+  </Accordion>
+
+  <Accordion title="Module not found / dependency errors">
+    **Cause:** Dependencies were not installed during deployment.
+
+    **Fix:** Ensure `SCM_DO_BUILD_DURING_DEPLOYMENT=true` is set in **Application settings**.
+  </Accordion>
+</AccordionGroup>
+
+### Viewing logs
+
+<Tabs>
+  <Tab title="Azure Portal">
+    Go to **Monitoring** → **Log stream** for a live tail of container output.
+  </Tab>
+  <Tab title="Azure CLI">
+    ```bash
+    az webapp log tail --name task-forge --resource-group <your-resource-group>
+    ```
+  </Tab>
+  <Tab title="Kudu">
+    Download log bundles from:
+    ```
+    https://<app-name>.scm.azurewebsites.net/api/logs/docker
+    ```
+  </Tab>
+  <Tab title="SSH">
+    ```bash
+    az webapp ssh --name task-forge --resource-group <your-resource-group>
+    # Logs are at /home/site/wwwroot/logs/
+    ```
+  </Tab>
+</Tabs>
+
+### Useful CLI commands
+
+```bash
+# Restart the app
+az webapp restart --name task-forge --resource-group <your-resource-group>
+
+# Tail logs
+az webapp log tail --name task-forge --resource-group <your-resource-group>
+
+# Open SSH session
+az webapp ssh --name task-forge --resource-group <your-resource-group>
+```
+
+## Post-deployment checklist
+
+- [ ] Startup command set to `bash startup.sh`
+- [ ] `FLASK_ENV=production`
+- [ ] `SECRET_KEY` generated and set
+- [ ] `JWT_SECRET_KEY` generated and set
+- [ ] Azure SQL variables set (or SQLite fallback accepted)
+- [ ] Azure SQL firewall rule allows Azure services
+- [ ] App restarted after configuration changes
+- [ ] `/api/docs` loads the Swagger UI

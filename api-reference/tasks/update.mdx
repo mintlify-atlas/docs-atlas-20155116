@@ -1,0 +1,172 @@
+---
+title: Update a task
+description: Update one or more fields of an existing task.
+---
+
+Updates an existing task. Both `PUT` and `PATCH` are accepted — partial updates are supported, so you only need to include the fields you want to change.
+
+You can update a task you own. Admins can update any task.
+
+<Info>
+  **Authentication required.** Include a valid Bearer token in the `Authorization` header.
+</Info>
+
+## Path parameters
+
+<ParamField path="task_id" type="integer" required>
+  The ID of the task to update.
+</ParamField>
+
+## Request body
+
+All fields are optional. Include only the fields you want to update.
+
+<ParamField body="title" type="string">
+  New task title. Must be between 1 and 200 characters.
+</ParamField>
+
+<ParamField body="description" type="string">
+  New task description. Maximum 5000 characters. Pass `null` to clear an existing description.
+</ParamField>
+
+<ParamField body="status" type="string">
+  New status. Allowed values: `pending`, `in_progress`, `completed`, `cancelled`.
+
+  Setting status to `completed` automatically sets `completed_at` to the current UTC time. Changing away from `completed` clears `completed_at`.
+</ParamField>
+
+<ParamField body="priority" type="string">
+  New priority. Allowed values: `low`, `medium`, `high`, `urgent`.
+</ParamField>
+
+<ParamField body="due_date" type="string">
+  New due date in ISO 8601 format. Example: `2024-12-31T23:59:59`. Pass `null` to remove the due date.
+</ParamField>
+
+<ParamField body="tags" type="integer[]">
+  Replacement array of tag IDs. This **replaces** all existing tags on the task. Pass an empty array `[]` to remove all tags.
+</ParamField>
+
+## Response
+
+Returns the updated task object with HTTP status `200`.
+
+<ResponseField name="success" type="boolean" required>
+  `true` on a successful response.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Confirmation message.
+</ResponseField>
+
+<ResponseField name="data" type="object" required>
+  The updated task. See [Get a task](/api-reference/tasks/get) for the full field reference.
+</ResponseField>
+
+## Errors
+
+| Status | Description |
+|--------|-------------|
+| `400`  | Validation error — a field exceeds its length limit or an enum value is invalid. |
+| `403`  | You do not own this task and are not an admin. |
+| `404`  | No task with the given `task_id` exists. |
+
+<RequestExample>
+
+```bash Update status and priority
+curl --request PATCH \
+  --url 'https://api.example.com/api/tasks/42' \
+  --header 'Authorization: Bearer <token>' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "status": "in_progress",
+    "priority": "urgent"
+  }'
+```
+
+```bash Update tags
+curl --request PATCH \
+  --url 'https://api.example.com/api/tasks/42' \
+  --header 'Authorization: Bearer <token>' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "tags": [1, 4]
+  }'
+```
+
+```bash Full update with PUT
+curl --request PUT \
+  --url 'https://api.example.com/api/tasks/42' \
+  --header 'Authorization: Bearer <token>' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "title": "Complete project documentation",
+    "description": "Write comprehensive API documentation for all endpoints",
+    "status": "in_progress",
+    "priority": "high",
+    "due_date": "2024-12-31T23:59:59",
+    "tags": [1, 2, 3]
+  }'
+```
+
+```python Python
+import requests
+
+response = requests.patch(
+    "https://api.example.com/api/tasks/42",
+    headers={
+        "Authorization": "Bearer <token>",
+        "Content-Type": "application/json",
+    },
+    json={
+        "status": "in_progress",
+        "priority": "urgent",
+    },
+)
+print(response.json())
+```
+
+</RequestExample>
+
+<ResponseExample>
+
+```json 200
+{
+  "success": true,
+  "message": "Tarea actualizada con exito",
+  "data": {
+    "id": 42,
+    "title": "Complete project documentation",
+    "description": "Write comprehensive API documentation",
+    "status": "in_progress",
+    "priority": "urgent",
+    "due_date": "2024-12-31T23:59:59",
+    "completed_at": null,
+    "is_overdue": false,
+    "is_completed": false,
+    "created_at": "2024-11-01T10:00:00",
+    "updated_at": "2024-11-16T09:00:00",
+    "user_id": 7,
+    "tags": [
+      {"id": 1, "name": "docs"},
+      {"id": 4, "name": "urgent"}
+    ]
+  }
+}
+```
+
+```json 403
+{
+  "success": false,
+  "message": "No tienes permiso para actualizar esta tarea"
+}
+```
+
+```json 404
+{
+  "success": false,
+  "message": "Tarea no encontrada"
+}
+```
+
+</ResponseExample>
